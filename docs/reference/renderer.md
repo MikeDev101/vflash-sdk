@@ -103,6 +103,11 @@ vflash_gpu_result_t vflash_renderer_upload_texture(vflash_renderer_t *r, vflash_
 - Uploads pixel data to both $A$ and $B$ backing allocations via D0/0E streaming with texture-cache flush (`0x89`).
 - Populates `tex` with the assigned `atlas_x`, `atlas_y`, `width`, `height`, `type`, and the renderer's current `generation_id`.
 
+### Resource Management Limitations
+- **No Individual Space Reclamation:** `vflash_renderer_destroy_texture()` invalidates the caller's handle and prevents further draw calls, but does not compact or free the occupied atlas rectangular region. This is by design for a lightweight, zero-fragmentation row-shelf allocator.
+- **Atlas Capacity Reclamation:** `vflash_renderer_reset_atlas()` is the exclusive mechanism to reclaim atlas space. Calling it invalidates all previously issued texture handles in $O(1)$ by advancing `generation_id`.
+- **Live Texture Uploads Prohibited:** Live asset streaming while tiled scanout is active is rejected with `VFLASH_GPU_BUSY`. Games and engines must stage textures during scene transitions (or park scanout to the linear fallback buffer) before issuing bulk texture uploads.
+
 ### Drawing Operations
 ```c
 vflash_gpu_result_t vflash_renderer_clear(vflash_renderer_t *r, uint32_t rgb);
