@@ -40,11 +40,14 @@ void vflash_main(void)
     VFLASH_ASSERT(vflash_gpu_surface_register(&sprite,&sprite_fb,(uint32_t)(uintptr_t)sprite_linear,1)==0);
     VFLASH_ASSERT(vflash_gpu_init(&g,VFLASH_GPU_ZEVIO)==0);
     vflash_gpu_caps_t caps=vflash_gpu_caps_for_layout(&g,VFLASH_GPU_LAYOUT_ZEVIO_TILED);
-    VFLASH_ASSERT(caps.hardware_accelerated && caps.fill_rect && caps.present && caps.same_surface_copy && caps.upload && !caps.blit);
+    VFLASH_ASSERT(caps.hardware_accelerated && caps.fill_rect && caps.present && caps.same_surface_copy && caps.upload && caps.color_key_sprite && !caps.blit && !caps.alpha_blend);
     VFLASH_ASSERT(!vflash_gpu_caps_for_layout(&g,VFLASH_GPU_LAYOUT_LINEAR).fill_rect);
     VFLASH_ASSERT(vflash_gpu_init(&g,VFLASH_GPU_SOFTWARE)==VFLASH_GPU_BUSY);
     VFLASH_ASSERT(vflash_gpu_blit(&g,&a,&b,0,0)==VFLASH_GPU_UNSUPPORTED);
     VFLASH_ASSERT(vflash_gpu_copy_region(&g,&a,0,0,16,8,1,0)==VFLASH_GPU_UNSUPPORTED);
+    VFLASH_ASSERT(vflash_gpu_draw_sprite(&g,&a,0,0,16,8,1,0)==VFLASH_GPU_UNSUPPORTED);
+    VFLASH_ASSERT(vflash_gpu_draw_sprite(&g,&a,-1,0,16,8,0,0)==VFLASH_GPU_INVALID);
+    VFLASH_ASSERT(vflash_gpu_draw_sprite(&g,&a,56,0,16,8,0,0)==VFLASH_GPU_INVALID);
     VFLASH_ASSERT(vflash_gpu_present(&g,&a,-1,0)==VFLASH_GPU_INVALID);
     VFLASH_ASSERT(vflash_gpu_present(&g,&a,257,0)==VFLASH_GPU_INVALID);
     VFLASH_ASSERT(vflash_gpu_present(&g,&wide,225,0)==VFLASH_GPU_INVALID);
@@ -53,6 +56,7 @@ void vflash_main(void)
     VFLASH_ASSERT(vflash_gpu_surface_register(&linear,&fb,0,0)==0);
     VFLASH_ASSERT(vflash_gpu_fill_rect(&g,&linear,0,0,1,1,0)==VFLASH_GPU_UNSUPPORTED);
     VFLASH_ASSERT(vflash_gpu_copy_region(&g,&linear,0,0,1,1,2,2)==VFLASH_GPU_UNSUPPORTED);
+    VFLASH_ASSERT(vflash_gpu_draw_sprite(&g,&linear,0,0,1,1,2,2)==VFLASH_GPU_UNSUPPORTED);
     VFLASH_ASSERT(vflash_gpu_upload(&g,&a,&linear,0,0,16,8,0,0)==VFLASH_GPU_INVALID);
     VFLASH_ASSERT(vflash_gpu_upload(&g,&wide,&sprite,0,0,15,8,0,0)==VFLASH_GPU_INVALID);
     VFLASH_ASSERT(vflash_gpu_upload(&g,&wide,&sprite,1,0,14,8,0,0)==VFLASH_GPU_INVALID);
@@ -64,6 +68,7 @@ void vflash_main(void)
     VFLASH_ASSERT(vflash_gpu_copy_region(&g,&wide,40,8,16,8,72,16)==0);
     VFLASH_ASSERT(vflash_gpu_present(&g,&wide,224,216)==0);
     VFLASH_ASSERT(vflash_gpu_upload(&g,&wide,&sprite,0,0,16,8,0,0)==VFLASH_GPU_BUSY);
+    VFLASH_ASSERT(vflash_gpu_draw_sprite(&g,&wide,40,8,16,8,0,0)==VFLASH_GPU_BUSY);
     uint16_t begin=vflash_clock_ticks();
     for (uint32_t frame=0;frame<32;++frame) {
         vflash_gpu_surface_t *s=(frame&1)?&b:&a;

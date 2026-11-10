@@ -33,6 +33,37 @@ Despite older comments describing 8x8 tiles, this expression groups 32x8 pixels
 per 512-byte unit. The initial diagnostic uses one such unit; the [tiled follow-up](gpu-tiled.md)
 checks neighboring units, direct scanout and all unused allocation words. No general physical tiling specification follows.
 
+## Modeled transparency, sprite, and blending behavior (`ge.c` / `hw.c`)
+
+Source inspection of FlashEm (`fb109dd01a49239c5884fcec60b9dc451fb651f8`)
+establishes the following transparency and blending paths:
+
+| Command / register | Modeled behavior | Source reference | HAL status |
+| --- | --- | --- | --- |
+| `0xD2000003` (`sy<<16\|sx`, `h<<16\|w`, `dy<<16\|dx`) | Unconditional raw 16-bit copy within the active surface (`*d = tmp[...]`); ignores bit 15, `0x0000`, and `blend` state | `ge.c:949-964` | Supported via `vflash_gpu_copy_region` (opaque only) |
+| `0xC8ffnnnn` (`sprite`, `f=0x01` textured, `f=0x04` tint word) | Draws an axis-aligned sprite (`attr`, `y<<16\|x` signed from `0x81` origin, `h<<16\|w`, `[v0<<16\|u0]`, `[0x00BBGGRR]`) clipped to `0x82`/`0x83`; skips texels where `tex_get() == 0` | `ge.c:226-292`, `1013-1017` | Supported for 16-bit color-keyed sprites via `vflash_gpu_draw_sprite` (`0xC8010004`) |
+| `0x81yyyxxx` | Sets drawing origin `(org_x, org_y)` added to `0xC8` signed 16-bit `(x, y)` | `ge.c:238`, `1002` | Issued as `0x81000000` by `vflash_gpu_draw_sprite` |
+| `0x82yyyxxx` / `0x83yyyxxx` | Inclusive clip rectangle `(clip_x0, clip_y0)..(clip_x1, clip_y1)`; `fill()` and `sprite()` clip against this window | `ge.c:121-126`, `246-248`, `1003-1004` | Used by `vflash_gpu_fill_rect` and `vflash_gpu_draw_sprite` |
+| `0x1E000000 \| m` | Bit 15 (`0x8000`) enables depth testing (`zenable`). Note: `sprite()` still writes `sz` to host `zbuf` when `sdepth` is active | `ge.c:103-106`, `271-275`, `982-984` | Issued as `0x1E000000` (`zenable = 0`) by `vflash_gpu_draw_sprite` |
+| `0x86000000 \| fmt` | Texture format/dimensions: `w = 8 << (fmt & 7)`, `h = 8 << ((fmt >> 3) & 7)` (UVs wrap modulo `w, h`); bit 8 (`0x100`) selects `ARGB4444` instead of `BGR555` | `ge.c:162-222`, `476-527`, `1005` | Issued as `0x8600003F` (`1024x1024` 16-bit `BGR555`) by `vflash_gpu_draw_sprite` |
+| `0x87yyyxxx` | Texture base `(tex_x, tex_y)` in the **same** active tiled surface (`g->surface`); sets `tex_bpp = 16` when `pal_pending == 0` | `ge.c:478-485`, `1006-1007` | Issued as `0x87000000` with `u0=sx, v0=sy` by `vflash_gpu_draw_sprite` |
+| `0x8F`..`0x94` (`0xPPyyyxxx`) | Sets palette row `(pal_x, pal_y)` in the tiled surface and arms `pal_pending = 8` (`0x8F`..`0x91`) or `4` (`0x92`..`0x94`) for the next `0x87` | `ge.c:205-220`, `1008-1012` | Not exposed by HAL |
+| `0x88000000 \| m` / `0x8D000000 \| k` | `(blend & 3) == 2` enables alpha blending weighted by `blend_k` (`0xBBGGRR`) and texel alpha (`1..16`); `(blend & 0x43) == 0x42` uses host `abuf` destination alpha | `ge.c:81-101`, `166-197`, `261-288`, `911`, `967` | Disabled (`0x88000000`) in `vflash_gpu_draw_sprite`; `caps.alpha_blend` remains `0` |
+| `0x95000000` | Sprite / upload sync command following `0xC8` or `0x0E` | `ge.c:916-918` | Issued after `0x0E` and `0xC8` |
+| `B8000100`..`B8000174` (`ve_render`) | Display scanout treats pixel bit 15 (`c & 0x8000`) as layer transparency (exposing `B800010C` background on layer 0), while `0x0000` scans out as opaque black | `hw.c:2079`, `2101` | Existing video driver scans out layer 0 over black fallback |
+
+Key 16-bit `BGR555` color-key rule in `ge.c:162-164` (`c555`):
+`c555(uint16_t p)` returns `p && !(p & 0x8000) ? p | 0x100000u : 0` in both the
+per-texel path (`texel()`, used when clipped sprite area `< 256` pixels) and the
+fast cached path (`tex_setup()` / `tfetch()`, used when clipped area `>= 256`
+pixels). Consequently, **both `0x0000` and any word with bit 15 set
+(`0x8000..0xFFFF`) are transparent** during `0xC8` `BGR555` sprite rendering and
+leave the destination pixel untouched, whereas `0x0001..0x7FFF` are drawn
+opaquely when `0x88000000` is active. To draw opaque dark-black sprite pixels in
+`0xC8` without triggering `0x0000` transparency, use a non-zero near-black value
+such as `0x0001` or `0x0421`, and use `0x8000` (or `0x0000`) for transparent
+cutouts.
+
 ## Architectural evidence versus implementation observations
 
 A first-party [ACCESS/Koto/HI platform announcement](https://www.access-company.com/en/news_event/archives/2006/010206/)

@@ -24,10 +24,11 @@ Use `vflash_gpu_caps_for_layout`, not a global acceleration flag:
 | --- | --- | --- |
 | Fill rectangle | Yes | Yes, clipped to registered view/clip |
 | General blit | Yes | Unsupported, including independent allocations |
-| Same-surface region copy | Use software blit | Explicit nonoverlapping D2 copy |
+| Same-surface region copy | Use software blit | Explicit nonoverlapping D2 copy (opaque) |
+| Same-surface color-key sprite | No | Yes (`vflash_gpu_draw_sprite`, `0xC8` `BGR555` color-keyed, clipped) |
 | Linear-to-tiled upload | Use software blit | Yes (`D0`/`0E`/`89`/`95`), contiguous word-aligned rows |
 | Direct present | Existing video API | Yes, bounded placement within 320x240 |
-| Alpha, scaling, rotation, triangles | No | No |
+| Alpha, scaling, rotation, triangles | No | No (`caps.alpha_blend` remains `0`) |
 | D1 readback through HAL | No | No; diagnostic only |
 
 Other backend/layout combinations return UNSUPPORTED. The legacy caps query
@@ -54,6 +55,35 @@ streams 32-bit words contiguously into the `D0` rectangle (`w` pixels per row),
 destination clip must be full, and multi-row uploads (`h > 1`) require
 `w == src->stride` (use `h == 1` strips when uploading sub-rectangles from a
 wider linear surface).
+
+`vflash_gpu_draw_sprite(gpu, surface, sx, sy, w, h, dx, dy)` draws a color-key
+transparent sprite from `(sx, sy, w, h)` in the **same** native tiled surface to
+`(dx, dy)` using `0xC8010004` (`caps.color_key_sprite = 1` for
+`VFLASH_GPU_ZEVIO` + `VFLASH_GPU_LAYOUT_ZEVIO_TILED`). It emits a 13-word list
+(+ `0x1400FD01` end-of-list):
+`0x81000000` (origin `0,0`), `0x82` / `0x83` (clipped destination bounds),
+`0x1E000000` (depth test disabled), `0x88000000` (alpha blending disabled),
+`0x8600003F` (`1024x1024` 16-bit `BGR555` texture window so `u, v` coordinates
+never wrap inside `0..1023`), `0x87000000` (texture base `(0,0)` in the active
+surface, `16 bpp` because `pal_pending` is `0`), `0xC8010004` with `attr = 0`,
+clipped destination `t<<16|l`, size `ch<<16|cw`, and clipped source UV
+`v0<<16|u0`, followed by `0x95000000` (sync).
+
+Source coordinates `(sx, sy, w, h)` must lie within `0..surface->fb.width` and
+`0..surface->fb.height` (`w >= 0, h >= 0`). Destination `(dx, dy)` may be
+negative or partially outside the surface/clip rectangle and is clipped against
+`surface->clip_x..clip_x+clip_w` and `surface->clip_y..clip_y+clip_h` before
+command emission (fully clipped or zero-size sprites return `VFLASH_GPU_OK`
+without submitting a list). If the clipped source UV rectangle and clipped
+destination rectangle overlap, `VFLASH_GPU_UNSUPPORTED` is returned. In
+FlashEm's `c555()` (`ge.c:162-164`), **both `0x0000` and any pixel with bit 15
+set (`0x8000..0xFFFF`) are treated as transparent** and leave the destination
+pixel untouched, while `0x0001..0x7FFF` are written opaquely. Note that during
+display scanout (`hw.c:2079`), `0x0000` is opaque black whereas `0x8000` is
+transparent to the video engine's background color; destination pixels written
+by `0xC8` always have bit 15 clear (`0x0001..0x7FFF`). General alpha blending
+(`0x88`/`0x8D`, `ARGB4444` via `0x86` bit 8, and `abuf` destination alpha) and
+paletted `4/8 bpp` textures (`0x8F`..`0x94`) remain unexposed (`caps.alpha_blend = 0`).
 
 ## Initialization and ownership
 
@@ -175,6 +205,38 @@ cmake --build build --target gpu_sprite_off_a_disc_image gpu_sprite_off_b_disc_i
   gpu_sprite_on_b_disc_image gpu_sprite_on_linear_disc_image
 python3 tools/gpu_sprite_smoke.py --emulator build/emulator/flashem \
   --bios 'dumps/A29L160ATV@TSOP48.BIN' --out build/gpu-sprite-acceptance
+```
+
+## Native transparent-sprite diagnostic
+
+`examples/gpu/transparent.c` and `tools/gpu_transparent_smoke.py` verify native
+`0xC8` color-keyed sprite rendering (`vflash_gpu_draw_sprite`) over the same
+shared `128x32` tiled backing layout (`96x32` playfield + `32x32` offscreen
+atlas):
+
+- A `16x16` sprite asset in linear SDRAM includes transparent corner cutouts
+  (`0x0000`, `0x8000`, `0xFFFF`, `0x9ABC`), a transparent `4x4` center window
+  alternating `0x8000` and `0x0000`, and opaque multicolor border/diagonal/quadrant
+  pixels (`0x0001..0x7FFF`).
+- Uploaded once per A/B surface into `(104, 8)` via `vflash_gpu_upload` (`2`
+  uploads total).
+- Each of the 32 alternating frames draws the 5-band multicolor background, then
+  renders the `16x16` transparent sprite twice: once unclipped at `(sx, sy)`
+  (`256` pixels, exercising FlashEm's `tex_setup`/`tfetch` fast path across
+  tile boundaries) and once at `(-4, 8)` clipped to `(2, 4, 20, 24)` (`160`
+  clipped pixels, exercising negative destination coordinates, surface clipping,
+  and FlashEm's `texel` path).
+- Verifies argument/overlap/active-front rejection, exact 32768-word surface and
+  offscreen-atlas preservation, `226` completed native lists (`2` uploads +
+  `32 * 7` frame lists), A/B vblank scanout, and linear restoration with MMU
+  off and on.
+
+```sh
+cmake --build build --target gpu_transparent_off_a_disc_image gpu_transparent_off_b_disc_image \
+  gpu_transparent_off_linear_disc_image gpu_transparent_on_a_disc_image \
+  gpu_transparent_on_b_disc_image gpu_transparent_on_linear_disc_image
+python3 tools/gpu_transparent_smoke.py --emulator build/emulator/flashem \
+  --bios 'dumps/A29L160ATV@TSOP48.BIN' --out build/gpu-transparent-acceptance
 ```
 
 ## Validation result

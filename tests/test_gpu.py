@@ -16,7 +16,7 @@ int main(void){
  assert(!vflash_gpu_caps(&g).hardware_accelerated);
  assert(vflash_gpu_wait_idle(&g)==VFLASH_GPU_NOT_INITIALIZED);
  assert(vflash_gpu_init(&g,VFLASH_GPU_SOFTWARE)==0);
- vflash_gpu_caps_t c=vflash_gpu_caps(&g);assert(c.fill_rect && c.blit && !c.hardware_accelerated && !c.alpha_blend && !c.scaling);
+ vflash_gpu_caps_t c=vflash_gpu_caps(&g);assert(c.fill_rect && c.blit && !c.hardware_accelerated && !c.alpha_blend && !c.scaling && !c.color_key_sprite);
  assert(vflash_gpu_surface_register(&s,&src,0,0)==0);
  assert(vflash_gpu_surface_register(&d,&fb,0,0)==0);
  assert(s.layout==VFLASH_GPU_LAYOUT_LINEAR);
@@ -64,8 +64,11 @@ int main(void){
  assert(vflash_gpu_upload(&g,&native,&s,0,0,8,8,0,0)==VFLASH_GPU_UNSUPPORTED);
  assert(vflash_gpu_upload(&g,&d,&s,0,0,8,8,0,0)==VFLASH_GPU_UNSUPPORTED);
  assert(vflash_gpu_present_view(&g,&native,96,24,0,0)==VFLASH_GPU_UNSUPPORTED);
+ assert(vflash_gpu_draw_sprite(&g,&native,0,0,8,8,0,0)==VFLASH_GPU_UNSUPPORTED);
+ assert(vflash_gpu_draw_sprite(&g,&d,0,0,8,8,0,0)==VFLASH_GPU_UNSUPPORTED);
  assert(!vflash_gpu_caps_for_layout(&g,VFLASH_GPU_LAYOUT_ZEVIO_TILED).fill_rect);
  assert(!vflash_gpu_caps_for_layout(&g,VFLASH_GPU_LAYOUT_ZEVIO_TILED).upload);
+ assert(!vflash_gpu_caps_for_layout(&g,VFLASH_GPU_LAYOUT_ZEVIO_TILED).color_key_sprite);
  assert(vflash_gpu_shutdown(&g)==0);assert(vflash_gpu_fill_rect(&g,&d,0,0,1,1,0)==VFLASH_GPU_NOT_INITIALIZED);
 }
 '''
