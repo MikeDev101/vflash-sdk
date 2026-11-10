@@ -7,7 +7,7 @@ function(vflash_add_program target script)
     target_include_directories(${target} PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/include" "${CMAKE_CURRENT_SOURCE_DIR}/examples/common")
     set_target_properties(${target} PROPERTIES SUFFIX ".elf" C_STANDARD 11 C_STANDARD_REQUIRED YES)
-    set(arch_flags -mcpu=arm926ej-s -marm -mfloat-abi=soft -mlittle-endian -mabi=aapcs)
+    set(arch_flags -mcpu=arm926ej-s -marm -mfloat-abi=soft -mlittle-endian -mabi=aapcs -fno-short-enums)
     target_compile_options(${target} PRIVATE ${arch_flags} -Os -g3 -ffreestanding -fno-builtin
         -ffunction-sections -fdata-sections -fno-unwind-tables -fno-asynchronous-unwind-tables
         -Wall -Wextra -Werror)

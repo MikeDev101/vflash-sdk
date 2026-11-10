@@ -205,3 +205,176 @@ foreach(mmu IN ITEMS off on)
         math(EXPR sdl_view "${sdl_view}+1")
     endforeach()
 endforeach()
+
+option(VFLASH_ENABLE_SDL2 "Build real upstream SDL2 library and tests" ON)
+
+if(VFLASH_ENABLE_SDL2 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/SDL2/include/SDL.h")
+    set(sdl2_sources
+        external/SDL2/src/SDL.c
+        external/SDL2/src/SDL_assert.c
+        external/SDL2/src/SDL_dataqueue.c
+        external/SDL2/src/SDL_error.c
+        external/SDL2/src/SDL_hints.c
+        external/SDL2/src/SDL_list.c
+        external/SDL2/src/SDL_log.c
+        external/SDL2/src/SDL_utils.c
+        external/SDL2/src/atomic/SDL_atomic.c
+        external/SDL2/src/atomic/SDL_spinlock.c
+        external/SDL2/src/cpuinfo/SDL_cpuinfo.c
+        external/SDL2/src/events/SDL_clipboardevents.c
+        external/SDL2/src/events/SDL_displayevents.c
+        external/SDL2/src/events/SDL_dropevents.c
+        external/SDL2/src/events/SDL_events.c
+        external/SDL2/src/events/SDL_gesture.c
+        external/SDL2/src/events/SDL_keyboard.c
+        external/SDL2/src/events/SDL_mouse.c
+        external/SDL2/src/events/SDL_quit.c
+        external/SDL2/src/events/SDL_touch.c
+        external/SDL2/src/events/SDL_windowevents.c
+        external/SDL2/src/file/SDL_rwops.c
+        external/SDL2/src/filesystem/dummy/SDL_sysfilesystem.c
+        external/SDL2/src/stdlib/SDL_getenv.c
+        external/SDL2/src/stdlib/SDL_iconv.c
+        external/SDL2/src/stdlib/SDL_malloc.c
+        external/SDL2/src/stdlib/SDL_qsort.c
+        external/SDL2/src/stdlib/SDL_stdlib.c
+        external/SDL2/src/stdlib/SDL_string.c
+        external/SDL2/src/stdlib/SDL_strtokr.c
+        external/SDL2/src/stdlib/SDL_crc16.c
+        external/SDL2/src/stdlib/SDL_crc32.c
+        external/SDL2/src/thread/SDL_thread.c
+        external/SDL2/src/thread/generic/SDL_syscond.c
+        external/SDL2/src/thread/generic/SDL_sysmutex.c
+        external/SDL2/src/thread/generic/SDL_syssem.c
+        external/SDL2/src/thread/generic/SDL_systhread.c
+        external/SDL2/src/thread/generic/SDL_systls.c
+        external/SDL2/src/video/SDL_video.c
+        external/SDL2/src/video/SDL_surface.c
+        external/SDL2/src/video/SDL_pixels.c
+        external/SDL2/src/video/SDL_rect.c
+        external/SDL2/src/video/SDL_blit.c
+        external/SDL2/src/video/SDL_blit_0.c
+        external/SDL2/src/video/SDL_blit_1.c
+        external/SDL2/src/video/SDL_blit_A.c
+        external/SDL2/src/video/SDL_blit_N.c
+        external/SDL2/src/video/SDL_blit_auto.c
+        external/SDL2/src/video/SDL_blit_copy.c
+        external/SDL2/src/video/SDL_blit_slow.c
+        external/SDL2/src/video/SDL_bmp.c
+        external/SDL2/src/video/SDL_fillrect.c
+        external/SDL2/src/video/SDL_RLEaccel.c
+        external/SDL2/src/video/SDL_stretch.c
+        external/SDL2/src/video/SDL_yuv.c
+        external/SDL2/src/video/yuv2rgb/yuv_rgb_std.c
+        external/SDL2/src/render/SDL_render.c
+        external/SDL2/src/render/SDL_yuv_sw.c
+        external/SDL2/src/render/SDL_d3dmath.c
+        external/SDL2/src/render/software/SDL_blendfillrect.c
+        external/SDL2/src/render/software/SDL_blendline.c
+        external/SDL2/src/render/software/SDL_blendpoint.c
+        external/SDL2/src/render/software/SDL_drawline.c
+        external/SDL2/src/render/software/SDL_drawpoint.c
+        external/SDL2/src/render/software/SDL_render_sw.c
+        external/SDL2/src/render/software/SDL_rotate.c
+        external/SDL2/src/render/software/SDL_triangle.c
+        external/SDL2/src/timer/SDL_timer.c
+        external/SDL2/src/libm/e_atan2.c
+        external/SDL2/src/libm/e_exp.c
+        external/SDL2/src/libm/e_fmod.c
+        external/SDL2/src/libm/e_log10.c
+        external/SDL2/src/libm/e_log.c
+        external/SDL2/src/libm/e_pow.c
+        external/SDL2/src/libm/e_rem_pio2.c
+        external/SDL2/src/libm/e_sqrt.c
+        external/SDL2/src/libm/k_cos.c
+        external/SDL2/src/libm/k_rem_pio2.c
+        external/SDL2/src/libm/k_sin.c
+        external/SDL2/src/libm/k_tan.c
+        external/SDL2/src/libm/s_atan.c
+        external/SDL2/src/libm/s_copysign.c
+        external/SDL2/src/libm/s_cos.c
+        external/SDL2/src/libm/s_fabs.c
+        external/SDL2/src/libm/s_floor.c
+        external/SDL2/src/libm/s_scalbn.c
+        external/SDL2/src/libm/s_sin.c
+        external/SDL2/src/libm/s_tan.c
+        src/graphics/sdl2_vflash/SDL_vflashvideo.c
+        src/graphics/sdl2_vflash/SDL_vflashrender.c
+        src/graphics/sdl2_vflash/SDL_vflashruntime.c
+    )
+
+    add_library(SDL2 STATIC ${sdl2_sources})
+    target_include_directories(SDL2 PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}/include/sdl2_vflash"
+        "${CMAKE_CURRENT_SOURCE_DIR}/external/SDL2/include"
+    )
+    target_include_directories(SDL2 PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/external/SDL2/src"
+    )
+    target_compile_definitions(SDL2 PUBLIC
+        DYNAPI_NEEDS_DLOPEN=1
+    )
+    set_source_files_properties(external/SDL2/src/file/SDL_rwops.c PROPERTIES
+        COMPILE_DEFINITIONS SDL_BUILD_RWOPS=1
+    )
+    set(sdl2_arch_flags -mcpu=arm926ej-s -marm -mfloat-abi=soft -mlittle-endian -mabi=aapcs -fno-short-enums)
+    target_compile_options(SDL2 PRIVATE
+        ${sdl2_arch_flags} -Os -g3 -ffreestanding -fno-builtin
+        -ffunction-sections -fdata-sections -fno-unwind-tables -fno-asynchronous-unwind-tables
+        -w
+    )
+
+    set(sdl2_gpu_sources src/gpu/gpu.c src/gpu/gpu_software.c src/gpu/gpu_zevio.c src/graphics/renderer.c)
+
+    foreach(mmu IN ITEMS off on)
+        set(sdl2_view 0)
+        foreach(view IN ITEMS a b linear)
+            set(target vflash_gpu_sdl2_${mmu}_${view})
+            vflash_add_program(${target} firmware-disc.ld
+                examples/gpu/sdl2_testsprite.c
+                external/SDL2/test/testutils.c
+                src/platform/clock.c
+                ${sdl2_gpu_sources}
+            )
+            target_include_directories(${target} PRIVATE
+                "${CMAKE_CURRENT_SOURCE_DIR}/include/sdl2_vflash"
+                "${CMAKE_CURRENT_SOURCE_DIR}/external/SDL2/include"
+                "${CMAKE_CURRENT_SOURCE_DIR}/external/SDL2/test"
+            )
+            target_compile_definitions(${target} PRIVATE
+                DYNAPI_NEEDS_DLOPEN=1
+                GPU_RENDERER_FINAL=${sdl2_view}
+            )
+            if(mmu STREQUAL "on")
+                target_sources(${target} PRIVATE src/platform/mmu.c src/platform/mmu_arm926.S)
+                target_compile_definitions(${target} PRIVATE GPU_SDL2_MMU=1)
+            endif()
+            target_link_libraries(${target} PRIVATE -Wl,--start-group SDL2 gcc -Wl,--end-group)
+            vflash_add_disc(gpu_sdl2_${mmu}_${view}_disc_image ${target} gpu/sdl2/${mmu}/${view})
+
+            set(draw_target vflash_gpu_sdl2_draw_${mmu}_${view})
+            vflash_add_program(${draw_target} firmware-disc.ld
+                examples/gpu/sdl2_testdraw.c
+                src/platform/clock.c
+                ${sdl2_gpu_sources}
+            )
+            target_include_directories(${draw_target} PRIVATE
+                "${CMAKE_CURRENT_SOURCE_DIR}/include/sdl2_vflash"
+                "${CMAKE_CURRENT_SOURCE_DIR}/external/SDL2/include"
+            )
+            target_compile_definitions(${draw_target} PRIVATE
+                DYNAPI_NEEDS_DLOPEN=1
+                GPU_RENDERER_FINAL=${sdl2_view}
+            )
+            if(mmu STREQUAL "on")
+                target_sources(${draw_target} PRIVATE src/platform/mmu.c src/platform/mmu_arm926.S)
+                target_compile_definitions(${draw_target} PRIVATE GPU_SDL2_MMU=1)
+            endif()
+            target_link_libraries(${draw_target} PRIVATE -Wl,--start-group SDL2 gcc -Wl,--end-group)
+            vflash_add_disc(gpu_sdl2_draw_${mmu}_${view}_disc_image ${draw_target} gpu/sdl2_draw/${mmu}/${view})
+
+            math(EXPR sdl2_view "${sdl2_view}+1")
+        endforeach()
+    endforeach()
+endif()

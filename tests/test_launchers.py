@@ -81,6 +81,8 @@ class DumpedGameTests(unittest.TestCase):
                  "gpu_lifecycle_on_b_disc_image", "build/gpu/lifecycle/on/b/homebrew.cue"),
                 (["--demo", "gpu-sdl", "--gpu-mmu", "on", "--gpu-view", "linear"],
                  "gpu_sdl_on_linear_disc_image", "build/gpu/sdl/on/linear/homebrew.cue"),
+                (["--demo", "gpu-sdl2", "--gpu-mmu", "on", "--gpu-view", "a"],
+                 "gpu_sdl2_on_a_disc_image", "build/gpu/sdl2/on/a/homebrew.cue"),
             ]
             for extra, target, disc in cases:
                 arguments = ["play-homebrew.sh", *extra, "--emulator", str(emulator), "--bios", str(bios)]
