@@ -1,6 +1,10 @@
 #include "animation.h"
 #include "vflash/clock.h"
 #include "vflash/video.h"
+#ifdef VFLASH_ENABLE_MMU
+#include "vflash/mmu.h"
+#include "vflash/panic.h"
+#endif
 
 volatile uint32_t boot_marker, startup_status, video_status, render_status;
 volatile uint32_t data_cookie = 0x13579BDFu;
@@ -22,6 +26,10 @@ void vflash_main(void)
         for (;;) __asm__ volatile("nop");
     }
     video_status = 0x56494431u;
+#ifdef VFLASH_ENABLE_MMU
+    VFLASH_ASSERT(vflash_mmu_identity() == VFLASH_MMU_OK);
+    VFLASH_ASSERT(vflash_mmu_enable() == VFLASH_MMU_OK);
+#endif
     animation_state_t state;
     animation_init(&state);
     uint16_t last = vflash_clock_ticks();

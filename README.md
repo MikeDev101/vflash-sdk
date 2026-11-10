@@ -91,3 +91,7 @@ direct loading, animation, panic diagnostics and debugging.
 
 [Documentation index](docs/README.md) · [Font atlas](docs/reference/fonts.md) ·
 [Source provenance](docs/research/sources.md)
+
+Optional MMU translation diagnostics and the remaining memory-protection gaps
+are documented in [the MMU reference](docs/reference/mmu.md). Normal applications
+continue with the MMU disabled.

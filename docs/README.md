@@ -23,6 +23,8 @@ remain outside the implemented baseline.
 - [Panic records, vectors and exception limitations](reference/panic.md)
 - [Printable ASCII font and atlas](reference/fonts.md)
 
+- [Optional MMU bring-up and emulator audit](reference/mmu.md)
+
 ## Research and history
 
 - [Firmware identity and loader evidence](research/firmware.md)

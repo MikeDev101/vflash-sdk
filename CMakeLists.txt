@@ -44,3 +44,19 @@ add_test(NAME disc_elf_contract COMMAND "${Python3_EXECUTABLE}" "${tools_dir}/ve
     "$<TARGET_FILE:vflash_disc_probe>" --readelf "${CMAKE_READELF}")
 add_test(NAME animation_elf_contract COMMAND "${Python3_EXECUTABLE}" "${tools_dir}/verify_elf.py"
     "$<TARGET_FILE:vflash_animation_probe>" --readelf "${CMAKE_READELF}")
+
+# Optional MMU bring-up programs; normal targets never link/enable this driver.
+foreach(mode IN ITEMS identity undefined)
+    vflash_add_program(vflash_mmu_${mode} firmware-disc.ld examples/mmu/main.c
+        examples/common/demo.c src/platform/clock.c src/platform/mmu.c src/platform/mmu_arm926.S)
+    if(mode STREQUAL "undefined")
+        target_compile_definitions(vflash_mmu_${mode} PRIVATE VFLASH_MMU_UDF=1)
+    endif()
+    vflash_add_disc(mmu_${mode}_disc_image vflash_mmu_${mode} mmu/${mode})
+endforeach()
+
+vflash_add_program(vflash_mmu_animation firmware-disc.ld examples/animation/main.c
+    examples/animation/animation.c src/platform/clock.c src/platform/mmu.c src/platform/mmu_arm926.S)
+target_compile_definitions(vflash_mmu_animation PRIVATE VFLASH_DOUBLE_BUFFER=1 VFLASH_ENABLE_MMU=1)
+target_link_libraries(vflash_mmu_animation PRIVATE gcc)
+vflash_add_disc(mmu_animation_disc_image vflash_mmu_animation mmu/animation)
