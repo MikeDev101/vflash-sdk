@@ -54,7 +54,17 @@ int main(void){
  assert(vflash_gpu_fill_rect(&g,&native,0,0,1,1,0)==VFLASH_GPU_UNSUPPORTED);
  assert(vflash_gpu_surface_register_tiled(&native,(void *)0x10000001,0x10000001,32768)==VFLASH_GPU_INVALID);
  assert(vflash_gpu_surface_register_tiled(&native,(void *)0x10000000,0x10000000,2048)==VFLASH_GPU_INVALID);
+ assert(vflash_gpu_surface_register_tiled_ex(&native,(void *)0x10000000,0x10000000,320,240,491520)==0);
+ assert(native.fb.width==320 && native.fb.height==240 && native.fb.stride==1024 && native.fb.capacity_pixels==245760);
+ assert(vflash_gpu_surface_register_tiled_ex(&native,(void *)0x10000000,0x10000000,96,24,49152)==0);
+ assert(vflash_gpu_surface_register_tiled_ex(&native,(void *)0x10000000,0x10000000,100,24,49152)==VFLASH_GPU_INVALID);
+ assert(vflash_gpu_surface_register_tiled_ex(&native,(void *)0x10000000,0x10000000,96,20,49152)==VFLASH_GPU_INVALID);
+ assert(vflash_gpu_surface_register_tiled_ex(&native,(void *)0x10000000,0x10000000,320,240,475136)==VFLASH_GPU_INVALID);
+ assert(vflash_gpu_surface_register_tiled_ex(&native,(void *)0x10F88040,0x10F88040,320,240,491520)==VFLASH_GPU_INVALID);
+ assert(vflash_gpu_upload(&g,&native,&s,0,0,8,8,0,0)==VFLASH_GPU_UNSUPPORTED);
+ assert(vflash_gpu_upload(&g,&d,&s,0,0,8,8,0,0)==VFLASH_GPU_UNSUPPORTED);
  assert(!vflash_gpu_caps_for_layout(&g,VFLASH_GPU_LAYOUT_ZEVIO_TILED).fill_rect);
+ assert(!vflash_gpu_caps_for_layout(&g,VFLASH_GPU_LAYOUT_ZEVIO_TILED).upload);
  assert(vflash_gpu_shutdown(&g)==0);assert(vflash_gpu_fill_rect(&g,&d,0,0,1,1,0)==VFLASH_GPU_NOT_INITIALIZED);
 }
 '''

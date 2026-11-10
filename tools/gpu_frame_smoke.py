@@ -11,10 +11,10 @@ def run(mmu,view,emulator,bios,base):
  sy={p[2]:int(p[0],16) for line in subprocess.check_output(['arm-none-eabi-nm','--defined-only',str(elf)],text=True).splitlines() if len(p:=line.split())==3}
  ram=(out/'ram.bin').read_bytes();word=lambda name:struct.unpack_from('<I',ram,sy[name]-0x10000000)[0]
  assert word('gpu_frame_status')==0x47465231 and word('gpu_frame_count')==32
- assert word('gpu_lists')==208
+ assert word('gpu_lists')==213
  assert bool(word('gpu_frame_control')&1)==(mmu=='on')
  offset=lambda x,y:(y//8)*8192+(x//32)*256+(y%8)*32+x%32
- a=[0x255A]*16384;b=a.copy()
+ a=[0x255A]*16384;b=a.copy();wide=[0x255A]*24576
  def fill(s,x,y,w,h,c):
   for yy in range(y,y+h):
    for xx in range(x,x+w):s[offset(xx,yy)]=c
@@ -24,8 +24,14 @@ def run(mmu,view,emulator,bios,base):
   snapshot=surface.copy()
   for y in range(4):
    for x in range(16):surface[offset(x+44,y+12)]=snapshot[offset(x,y)]
- for name,expected in [('frame_a',a),('frame_b',b)]:
-  assert struct.unpack_from('<16384H',ram,sy[name]-0x10000000)==tuple(expected),f'{name} pattern or untouched padding differs'
+ fill(wide,0,0,96,24,0);fill(wide,64,16,32,8,0x7fe0)
+ for x in range(14):wide[offset(x,23)]=0x4000+2+x
+ for y in range(8):
+  for x in range(16):
+   val=0x4000+y*16+x
+   wide[offset(40+x,8+y)]=val;wide[offset(72+x,16+y)]=val
+ for name,count,expected in [('frame_a',16384,a),('frame_b',16384,b),('frame_wide',24576,wide)]:
+  assert struct.unpack_from(f'<{count}H',ram,sy[name]-0x10000000)==tuple(expected),f'{name} pattern or untouched padding differs'
  assert ram[sy['video_pixels']-0x10000000:][:153600]==bytes(153600),'CPU linear buffer must remain black'
  expected=[0]*76800
  if view!='linear':
@@ -35,7 +41,7 @@ def run(mmu,view,emulator,bios,base):
  assert read_ppm(out/'frame.ppm')==(320,240,to_rgb(struct.pack('<76800H',*expected))),'direct scanout/placement/recovery mismatch'
  text=(out/'run.log').read_text(errors='replace')
  addresses=[int(v,16) for v in re.findall(r'layer 0 address ([0-9A-Fa-f]{8})',text)]
- sequence=[sy['frame_a'],sy['frame_b'],sy['video_pixels']]
+ sequence=[sy['frame_wide'],sy['frame_a'],sy['frame_b'],sy['video_pixels']]
  for address in addresses:
   if sequence and address==sequence[0]:sequence.pop(0)
  assert not sequence,'scanout did not visit A, B, then linear recovery'

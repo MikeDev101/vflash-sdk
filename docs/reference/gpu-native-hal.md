@@ -7,14 +7,16 @@ the native backend.
 
 ## Surface and capability contracts
 
-`vflash_gpu_surface_register_tiled` borrows at least 32768 bytes of 64-byte-aligned
-SDRAM with an explicitly supplied physical address. Initially the logical
-surface is fixed at **64x16**, with the model's 1024-pixel backing pitch. CPU
-pointer and physical address must be equal and within modeled SDRAM. This
-conservative constructor rejects arbitrary virtual aliases. It does not perform
-MMU translation or prove an allocation exists: the caller owns and guarantees
-that storage, its identity mapping and its lifetime. Normal registration remains
-linear and unchanged. Both kinds carry an explicit layout.
+`vflash_gpu_surface_register_tiled_ex` borrows at least `(height / 8) * 16384`
+bytes of 64-byte-aligned SDRAM with an explicitly supplied physical address for
+any tile-aligned logical size (`width` a multiple of 32 in `32..1024`, `height`
+a multiple of 8 in `8..1024`, with the model's 1024-pixel backing pitch).
+`vflash_gpu_surface_register_tiled` preserves the legacy 64x16 (32768-byte)
+convenience wrapper. CPU pointer and physical address must be equal and within
+modeled SDRAM. This conservative constructor rejects arbitrary virtual aliases.
+It does not perform MMU translation or prove an allocation exists: the caller
+owns and guarantees that storage, its identity mapping and its lifetime. Normal
+registration remains linear and unchanged. Both kinds carry an explicit layout.
 
 Use `vflash_gpu_caps_for_layout`, not a global acceleration flag:
 
@@ -23,6 +25,7 @@ Use `vflash_gpu_caps_for_layout`, not a global acceleration flag:
 | Fill rectangle | Yes | Yes, clipped to registered view/clip |
 | General blit | Yes | Unsupported, including independent allocations |
 | Same-surface region copy | Use software blit | Explicit nonoverlapping D2 copy |
+| Linear-to-tiled upload | Use software blit | Yes (`D0`/`0E`/`89`/`95`), contiguous word-aligned rows |
 | Direct present | Existing video API | Yes, bounded placement within 320x240 |
 | Alpha, scaling, rotation, triangles | No | No |
 | D1 readback through HAL | No | No; diagnostic only |
@@ -34,10 +37,23 @@ Caller-owned context objects must not be copied or reinitialized while active.
 Only one native context may own the engine at a time; software contexts are
 independent. The host build rejects native initialization without touching MMIO.
 
-D2 source/destination rectangles must be fully in bounds and the surface clip
-must be full. Nontrivial overlap is rejected, even though one experimental
-snapshot-style overlap passed: generalized physical overlap semantics remain
-unknown. No cross-base copy is inferred from a single backing-surface model.
+D2 source/destination rectangles must be fully in bounds, fit within the model's
+65536-pixel copy buffer, and the surface clip must be full. Nontrivial overlap
+is rejected, even though one experimental snapshot-style overlap passed:
+generalized physical overlap semantics remain unknown. No cross-base copy is
+inferred from a single backing-surface model (`0xA8000098`).
+
+`vflash_gpu_upload(gpu, dst, src, sx, sy, w, h, dx, dy)` uploads a linear
+`VFLASH_BGR555` source rectangle into a native tiled destination using
+`D0000002` + `0E00nnnn` + `89000000` (texture-cache sync) + `95000000` (sync).
+The linear source must carry a known 32-bit-aligned identity physical address in
+SDRAM and must not overlap the destination backing allocation. Because `0E`
+streams 32-bit words contiguously into the `D0` rectangle (`w` pixels per row),
+`w` must be even, the starting byte offset `(sy * src->stride + sx) * 2` must be
+4-byte aligned, `(w * h) / 2` must fit in 16 bits (`<= 65535` words), the
+destination clip must be full, and multi-row uploads (`h > 1`) require
+`w == src->stride` (use `h == 1` strips when uploading sub-rectangles from a
+wider linear surface).
 
 ## Initialization and ownership
 
@@ -77,9 +93,11 @@ scheduler, buffer reference counting or asynchronous fence API.
 ## Presentation stays in the video driver
 
 `vflash_gpu_present(gpu, surface, x, y)` delegates to
-`vflash_video_present_tiled`. Placement is bounds-checked; tests cover (13,19),
-(0,0) and (256,224). The video driver owns vblank polling, temporary layout/window
-changes, the physical scanout pointer and restoration. It requires the existing
+`vflash_video_present_tiled_ex` (`vflash_video_present_tiled` remains for 64x16).
+Placement and surface dimensions are bounds-checked within 320x240; tests cover
+64x16 at (13,19), (0,0), (256,224) and 96x24 at (224,216). The video driver owns
+vblank polling, temporary layout/window changes, the physical scanout pointer,
+the active backing-size guard and restoration. It requires the existing
 SDK-owned linear buffer/configuration, saves its address, and restores the
 canonical full linear window on successful native shutdown. It never converts
 or copies tiled pixels. Normal linear present/init are rejected while tiled
@@ -94,18 +112,23 @@ is captured or promised restorable.
 ## Complete-frame workload and verification
 
 `examples/gpu/integrated.c` uses only the public HAL for native commands. It
-alternates two tiled allocations for 32 frames. Each frame clears the 64x16
+first exercises a generalized 96x24 (49152-byte, three 8-row bands) tiled
+surface (`frame_wide`), verifying multi-band fills, single-row and multi-row
+linear-to-tiled uploads (`vflash_gpu_upload`), cross-tile D2 copies, and
+presentation at (224,216) (plus active-front upload rejection). It then
+alternates two 64x16 tiled allocations for 32 frames. Each frame clears the
 backbuffer, draws colored regions, performs a nonoverlapping D2 region copy,
 waits, presents directly and confirms writes to the active front buffer fail.
 It checks unsupported blits/overlap, ownership/reinitialization rejection,
-layout-conditioned caps and successful shutdown/linear recovery. The scene is
-a complete frame of the restricted **64x16 view**, not a 320x240 GPU benchmark.
+layout-conditioned caps and successful shutdown/linear recovery.
 
 Six final-view builds preserve A at (0,0), B at (256,224), or recovered linear
-scanout, with MMU off/on. The runner independently checks every tiled word,
-including untouched padding, keeps the CPU linear buffer black, verifies actual
-full RGB screenshots, and checks the first 32 scanout addresses alternate A/B.
-Each frame run completes 208 native lists. No CPU layout conversion occurs.
+scanout, with MMU off/on. The runner independently checks every tiled word across
+all three tiled allocations (`frame_a`, `frame_b`, and `frame_wide`), including
+untouched padding, keeps the CPU linear buffer black, verifies actual full RGB
+screenshots, and checks scanout transitions (`wide -> A -> B -> linear`) and the
+32 alternating A/B frames. Each run completes 213 native lists. No CPU layout
+conversion occurs.
 
 ```sh
 cmake --build build --target gpu_frame_off_a_disc_image gpu_frame_off_b_disc_image \

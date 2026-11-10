@@ -26,7 +26,7 @@ uint16_t video_pixels[VFLASH_WIDTH * VFLASH_HEIGHT] __attribute__((aligned(64)))
 #define VE_ADDRESS0   0x160u
 #define SCREEN_END ((VFLASH_HEIGHT - 1u) << 16 | (VFLASH_WIDTH - 1u))
 
-static uint32_t tiled_address, saved_linear_address;
+static uint32_t tiled_address, tiled_bytes, saved_linear_address;
 
 int vflash_video_init(vflash_framebuffer_t *fb)
 {
@@ -105,6 +105,7 @@ uint32_t vflash_video_front_bank(void)
 }
 
 uint32_t vflash_video_tiled_address(void) { return tiled_address; }
+uint32_t vflash_video_tiled_bytes(void) { return tiled_bytes; }
 static int tiled_vblank(void)
 {
     VE_REG(VE_STATUS)=2;
@@ -113,10 +114,12 @@ static int tiled_vblank(void)
         if ((uint16_t)(vflash_clock_ticks()-start)>=1000) return 0;
     return 1;
 }
-int vflash_video_present_tiled(uint32_t address,int32_t x,int32_t y)
+int vflash_video_present_tiled_ex(uint32_t address,uint32_t width,uint32_t height,int32_t x,int32_t y)
 {
-    if (x<0 || y<0 || x>256 || y>224) return 0;
-    if ((address&63) || address<0x10000000 || address>0x11000000-32768) return 0;
+    if (!width || !height || (width&31) || (height&7) || width>VFLASH_WIDTH || height>VFLASH_HEIGHT) return 0;
+    if (x<0 || y<0 || (int64_t)x+width>VFLASH_WIDTH || (int64_t)y+height>VFLASH_HEIGHT) return 0;
+    uint32_t needed=(height>>3)*16384u;
+    if ((address&63) || address<0x10000000 || address>0x11000000-needed) return 0;
     if (VE_REG(VE_SIZE)!=SCREEN_END || VE_REG(VE_IRQ_MASK)!=0 || VE_REG(VE_ENABLE)!=16) return 0;
     if (!tiled_address) {
         uint32_t current=VE_REG(VE_ADDRESS0);
@@ -130,10 +133,14 @@ int vflash_video_present_tiled(uint32_t address,int32_t x,int32_t y)
     if (!tiled_vblank()) return 0;
     VE_REG(VE_ENABLE)=0;VE_REG(VE_LAYOUT)=4;
     VE_REG(VE_START0)=(uint32_t)y<<16|(uint32_t)x;
-    VE_REG(VE_END0)=(uint32_t)(y+15)<<16|(uint32_t)(x+63);
+    VE_REG(VE_END0)=(uint32_t)(y+(int32_t)height-1)<<16|(uint32_t)(x+(int32_t)width-1);
     VE_REG(VE_ADDRESS0)=address;
     __asm__ volatile("" ::: "memory");VE_REG(VE_ENABLE)=16;
-    tiled_address=address;return 1;
+    tiled_address=address;tiled_bytes=needed;return 1;
+}
+int vflash_video_present_tiled(uint32_t address,int32_t x,int32_t y)
+{
+    return vflash_video_present_tiled_ex(address,64,16,x,y);
 }
 int vflash_video_restore_linear(void)
 {
@@ -143,5 +150,5 @@ int vflash_video_restore_linear(void)
     VE_REG(VE_START0)=0;VE_REG(VE_END0)=SCREEN_END;
     VE_REG(VE_ADDRESS0)=saved_linear_address;
     __asm__ volatile("" ::: "memory");VE_REG(VE_ENABLE)=16;
-    tiled_address=0;return VE_REG(VE_LAYOUT)==0 && VE_REG(VE_ADDRESS0)==saved_linear_address;
+    tiled_address=0;tiled_bytes=0;return VE_REG(VE_LAYOUT)==0 && VE_REG(VE_ADDRESS0)==saved_linear_address;
 }

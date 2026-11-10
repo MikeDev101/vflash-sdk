@@ -6,8 +6,9 @@ engine. It does not establish physical Zevio compatibility, a complete native
 GPU driver, or a hardware SDL2 renderer. Existing video and panic drivers are
 unchanged. No SDL2 implementation currently exists in this checkout.
 
-The current [restricted native HAL](gpu-native-hal.md) now integrates 64x16
-tiled fills, nonoverlapping same-surface D2 copies and direct presentation.
+The current [restricted native HAL](gpu-native-hal.md) now integrates tile-aligned
+tiled fills, linear-to-tiled uploads (`D0`/`0E`), nonoverlapping same-surface D2
+copies and direct presentation.
 The original one-tile native experiment and its measurements below remain
 separate historical research workloads, not the integrated frame benchmark.
 

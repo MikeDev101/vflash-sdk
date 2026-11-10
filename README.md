@@ -97,13 +97,14 @@ are documented in [the MMU reference](docs/reference/mmu.md). Normal application
 continue with the MMU disabled.
 
 The [GPU HAL](docs/reference/gpu.md) supplies software fills/blits and a separate
-command-driven native-fill experiment; a restricted native tiled HAL is now available for verified 64x16 surfaces
+command-driven native-fill experiment; a restricted native tiled HAL is now available for tile-aligned surfaces (`32x8` up to `1024x1024`, direct presentation up to `320x240`)
 (see [the native HAL contract](docs/reference/gpu-native-hal.md)). See the [register inventory](docs/reference/zevio-registers.md).
 
 [Direct tiled presentation experiments](docs/reference/gpu-tiled.md) verify
 conversion-free scanout, buffer swaps, linear recovery, D2 region copies and
 D1 readback in FlashEm, including MMU-on tests.
 
-[Native HAL frame tests](docs/reference/gpu-native-hal.md) exercise fills,
-same-surface copies, direct vblank presentation and shutdown recovery with
-layout-specific capabilities and MMU off/on.
+[Native HAL frame tests](docs/reference/gpu-native-hal.md) exercise generalized
+tiled geometry, fills, linear-to-tiled uploads, same-surface copies, direct
+vblank presentation and shutdown recovery with layout-specific capabilities and
+MMU off/on.
