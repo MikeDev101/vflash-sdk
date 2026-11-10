@@ -1,5 +1,5 @@
-#include "draw.h"
-#include "font.h"
+#include "vflash/draw.h"
+#include "vflash/font.h"
 
 int draw_valid(const vflash_framebuffer_t *fb)
 {

@@ -1,6 +1,6 @@
 #include "animation.h"
-#include "clock.h"
-#include "video.h"
+#include "vflash/clock.h"
+#include "vflash/video.h"
 
 volatile uint32_t boot_marker, startup_status, video_status, render_status;
 volatile uint32_t data_cookie = 0x13579BDFu;

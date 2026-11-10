@@ -1,7 +1,7 @@
-#include "video.h"
-#include "draw.h"
+#include "vflash/video.h"
+#include "vflash/draw.h"
 #ifdef VFLASH_DOUBLE_BUFFER
-#include "clock.h"
+#include "vflash/clock.h"
 uint16_t video_back_pixels[VFLASH_WIDTH * VFLASH_HEIGHT] __attribute__((aligned(64)));
 static uint16_t *front;
 #endif

@@ -16,6 +16,7 @@ _start:
     cmp r0, r1
     strlo r2, [r0], #4
     blo 1b
+    bl vflash_panic_init
     bl vflash_main
 2:
     b 2b

@@ -1,6 +1,6 @@
 #include <stdint.h>
 #include "demo.h"
-#include "video.h"
+#include "vflash/video.h"
 
 /* Symbols give the debugger a location; no unverified fixed RAM mailbox. */
 volatile uint32_t boot_marker;

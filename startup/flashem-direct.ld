@@ -16,9 +16,18 @@ SECTIONS
         . = ALIGN(4);
         __bss_end = .;
     } > RAM :data
+    .panic (NOLOAD) : ALIGN(64) {
+        __panic_start = .;
+        KEEP(*(.panic.record)) KEEP(*(.panic.vectors)) KEEP(*(.panic.state))
+        KEEP(*(.panic.stack)) KEEP(*(.panic.framebuffer))
+        . = ALIGN(64);
+        __panic_end = .;
+    } > RAM :data
     __image_end = .;
     __stack_top = ORIGIN(RAM) + LENGTH(RAM);
     __stack_bottom = __stack_top - 16K;
-    ASSERT(__image_end <= __stack_bottom, "Probe overlaps its 16 KiB stack")
+    __heap_start = ALIGN(__image_end, 64);
+    __heap_end = __stack_bottom;
+    ASSERT(__heap_start <= __heap_end, "Probe overlaps its 16 KiB stack")
     /DISCARD/ : { *(.comment) *(.note*) }
 }

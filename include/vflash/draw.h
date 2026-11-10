@@ -1,6 +1,6 @@
 #ifndef VFLASH_DRAW_H
 #define VFLASH_DRAW_H
-#include "framebuffer.h"
+#include "vflash/framebuffer.h"
 
 int draw_valid(const vflash_framebuffer_t *fb);
 uint16_t draw_color(uint32_t rgb);

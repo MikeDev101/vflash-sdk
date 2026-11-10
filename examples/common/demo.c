@@ -1,5 +1,5 @@
 #include "demo.h"
-#include "draw.h"
+#include "vflash/draw.h"
 
 void demo_render(vflash_framebuffer_t *fb)
 {

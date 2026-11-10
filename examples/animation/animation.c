@@ -1,5 +1,5 @@
 #include "animation.h"
-#include "draw.h"
+#include "vflash/draw.h"
 
 void animation_init(animation_state_t *state)
 {

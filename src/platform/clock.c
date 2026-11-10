@@ -1,4 +1,4 @@
-#include "clock.h"
+#include "vflash/clock.h"
 #define REG(address) (*(volatile uint32_t *)(uintptr_t)(address))
 
 int vflash_clock_init(void)
