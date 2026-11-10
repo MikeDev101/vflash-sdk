@@ -1,0 +1,13 @@
+/build*/
+__pycache__/
+*.pyc
+/test-output/
+*.iso
+*.cue
+/70004.bin
+/A29L160ATV@TSOP48.BIN
+# Local research fixtures and downloaded host utility; never SDK source.
+/BOOT.BIN
+/*.zip
+/disc-xplorer
+/dumps
