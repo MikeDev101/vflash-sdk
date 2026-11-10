@@ -26,9 +26,10 @@ Use `vflash_gpu_caps_for_layout`, not a global acceleration flag:
 | General blit | Yes | Unsupported, including independent allocations |
 | Same-surface region copy | Use software blit | Explicit nonoverlapping D2 copy (opaque) |
 | Same-surface color-key sprite | No | Yes (`vflash_gpu_draw_sprite`, `0xC8` `BGR555` color-keyed, clipped) |
+| Same-surface alpha-blended sprite | No | Yes (`vflash_gpu_draw_sprite_ex` with `ABGR4444`, `caps.alpha_blend = 1`) |
 | Linear-to-tiled upload | Use software blit | Yes (`D0`/`0E`/`89`/`95`), contiguous word-aligned rows |
 | Direct present | Existing video API | Yes, bounded placement within 320x240 |
-| Alpha, scaling, rotation, triangles | No | No (`caps.alpha_blend` remains `0`) |
+| Scaling, rotation, triangles | No | No |
 | D1 readback through HAL | No | No; diagnostic only |
 
 Other backend/layout combinations return UNSUPPORTED. The legacy caps query
@@ -81,9 +82,26 @@ set (`0x8000..0xFFFF`) are treated as transparent** and leave the destination
 pixel untouched, while `0x0001..0x7FFF` are written opaquely. Note that during
 display scanout (`hw.c:2079`), `0x0000` is opaque black whereas `0x8000` is
 transparent to the video engine's background color; destination pixels written
-by `0xC8` always have bit 15 clear (`0x0001..0x7FFF`). General alpha blending
-(`0x88`/`0x8D`, `ARGB4444` via `0x86` bit 8, and `abuf` destination alpha) and
-paletted `4/8 bpp` textures (`0x8F`..`0x94`) remain unexposed (`caps.alpha_blend = 0`).
+by `0xC8` always have bit 15 clear (`0x0001..0x7FFF`).
+
+`vflash_gpu_draw_sprite_ex(gpu, surface, format, sx, sy, w, h, dx, dy)` extends
+sprite rendering with an explicit texture format enum (`vflash_gpu_texture_format_t`):
+- `VFLASH_GPU_TEXTURE_BGR555_KEY` (0): Emits `0x8600003F` (bit 8 clear). Decodes 16-bit
+  `BGR555` with color-key transparency as described above. `vflash_gpu_draw_sprite`
+  delegates directly to this format.
+- `VFLASH_GPU_TEXTURE_ABGR4444` (1): Emits `0x8600013F` (bit 8 set, `caps.alpha_blend = 1`).
+  Decodes `0xABGR` nibbles: $a = \text{word} \gg 12$. A texel with $a = 0$ is completely
+  transparent and skipped. For $a > 0$, alpha weight is $al = a + 1 \in [2, 16]$ out of 16,
+  blended via integer linear interpolation $\lfloor (src \cdot al + dst \cdot (16 - al)) / 16 \rfloor$.
+  When $a = 15$, $al = 16$ (100% opaque); in particular, `0xF000` encodes opaque black
+  ($a=15, b=0, g=0, r=0$), which overwrites destination with `0x0000`, distinguishing it
+  from `BGR555_KEY` where `0x0000` is transparent.
+
+Because every command list explicitly programs `0x86` (`0x8600003F` or `0x8600013F`),
+alternating opaque (`D2`), color-keyed (`BGR555_KEY`), and translucent (`ABGR4444`)
+sprites within the same frame deterministically resets the texture decoding mode without
+residual state leakage. Register-driven constant blending (`0x88`/`0x8D`), emulator-synthetic
+destination alpha (`abuf`), and paletted `4/8 bpp` textures (`0x8F`..`0x94`) remain unexposed.
 
 ## Initialization and ownership
 

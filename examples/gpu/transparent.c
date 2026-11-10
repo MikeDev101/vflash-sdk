@@ -64,7 +64,7 @@ void vflash_main(void)
     VFLASH_ASSERT(vflash_gpu_surface_register(&asset,&asset_fb,(uint32_t)(uintptr_t)transparent_asset,1)==0);
     VFLASH_ASSERT(vflash_gpu_init(&g,VFLASH_GPU_ZEVIO)==0);
     vflash_gpu_caps_t caps=vflash_gpu_caps_for_layout(&g,VFLASH_GPU_LAYOUT_ZEVIO_TILED);
-    VFLASH_ASSERT(caps.color_key_sprite && !caps.alpha_blend);
+    VFLASH_ASSERT(caps.color_key_sprite && caps.alpha_blend);
     /* Validate argument and overlap rejections before submitting lists. */
     VFLASH_ASSERT(vflash_gpu_draw_sprite(&g,&a,-1,8,16,16,0,0)==VFLASH_GPU_INVALID);
     VFLASH_ASSERT(vflash_gpu_draw_sprite(&g,&a,104,-1,16,16,0,0)==VFLASH_GPU_INVALID);

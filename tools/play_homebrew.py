@@ -24,6 +24,7 @@ DEMOS = (
     "gpu-sprite",
     "gpu-transparent",
     "gpu-alpha",
+    "gpu-modes",
 )
 PANIC_TESTS = (
     "manual", "undefined", "stack", "nested", "swi", "thumb",
@@ -157,8 +158,8 @@ def main():
         parser.error("--demo is only available in play-homebrew.sh")
     if args.panic_test is not None and args.demo != "panic":
         parser.error("--panic-test requires --demo panic")
-    if (args.gpu_mmu is not None or args.gpu_view is not None) and args.demo not in ("gpu-tiled", "gpu-frame", "gpu-sprite", "gpu-transparent", "gpu-alpha"):
-        parser.error("--gpu-mmu and --gpu-view require --demo gpu-tiled, gpu-frame, gpu-sprite, gpu-transparent, or gpu-alpha")
+    if (args.gpu_mmu is not None or args.gpu_view is not None) and args.demo not in ("gpu-tiled", "gpu-frame", "gpu-sprite", "gpu-transparent", "gpu-alpha", "gpu-modes"):
+        parser.error("--gpu-mmu and --gpu-view require --demo gpu-tiled, gpu-frame, gpu-sprite, gpu-transparent, gpu-alpha, or gpu-modes")
     try:
         if args.list:
             for disc in find_dumped_discs(ROOT / "dumps"):

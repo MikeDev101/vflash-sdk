@@ -120,7 +120,7 @@ vflash_gpu_caps_t vflash_gpu_caps_for_layout(const vflash_gpu_t *g,vflash_gpu_la
     if (!g || !g->initialized) return c;
     if (g->backend==VFLASH_GPU_SOFTWARE && layout==VFLASH_GPU_LAYOUT_LINEAR) return vflash_gpu_caps(g);
     if (g->backend==VFLASH_GPU_ZEVIO && layout==VFLASH_GPU_LAYOUT_ZEVIO_TILED)
-        c.hardware_accelerated=c.fill_rect=c.present=c.same_surface_copy=c.upload=c.color_key_sprite=1;
+        c.hardware_accelerated=c.fill_rect=c.present=c.same_surface_copy=c.upload=c.color_key_sprite=c.alpha_blend=1;
     return c;
 }
 vflash_gpu_result_t vflash_gpu_present_view(vflash_gpu_t *g,vflash_gpu_surface_t *s,uint32_t w,uint32_t h,int32_t x,int32_t y)
@@ -139,11 +139,16 @@ vflash_gpu_result_t vflash_gpu_copy_region(vflash_gpu_t *g,vflash_gpu_surface_t 
     if (s && s->layout!=VFLASH_GPU_LAYOUT_ZEVIO_TILED) return VFLASH_GPU_UNSUPPORTED;
     return g->backend==VFLASH_GPU_ZEVIO ? gpu_zevio_copy(g,s,sx,sy,w,h,dx,dy):VFLASH_GPU_UNSUPPORTED;
 }
-vflash_gpu_result_t vflash_gpu_draw_sprite(vflash_gpu_t *g,vflash_gpu_surface_t *s,int32_t sx,int32_t sy,int32_t w,int32_t h,int32_t dx,int32_t dy)
+vflash_gpu_result_t vflash_gpu_draw_sprite_ex(vflash_gpu_t *g,vflash_gpu_surface_t *s,vflash_gpu_texture_format_t fmt,int32_t sx,int32_t sy,int32_t w,int32_t h,int32_t dx,int32_t dy)
 {
     vflash_gpu_result_t r=ready(g);if (r) return r;
     if (s && s->layout!=VFLASH_GPU_LAYOUT_ZEVIO_TILED) return VFLASH_GPU_UNSUPPORTED;
-    return g->backend==VFLASH_GPU_ZEVIO ? gpu_zevio_sprite(g,s,sx,sy,w,h,dx,dy):VFLASH_GPU_UNSUPPORTED;
+    if (fmt!=VFLASH_GPU_TEXTURE_BGR555_KEY && fmt!=VFLASH_GPU_TEXTURE_ABGR4444) return VFLASH_GPU_INVALID;
+    return g->backend==VFLASH_GPU_ZEVIO ? gpu_zevio_sprite_ex(g,s,fmt,sx,sy,w,h,dx,dy):VFLASH_GPU_UNSUPPORTED;
+}
+vflash_gpu_result_t vflash_gpu_draw_sprite(vflash_gpu_t *g,vflash_gpu_surface_t *s,int32_t sx,int32_t sy,int32_t w,int32_t h,int32_t dx,int32_t dy)
+{
+    return vflash_gpu_draw_sprite_ex(g,s,VFLASH_GPU_TEXTURE_BGR555_KEY,sx,sy,w,h,dx,dy);
 }
 vflash_gpu_result_t vflash_gpu_upload(vflash_gpu_t *g,vflash_gpu_surface_t *d,const vflash_gpu_surface_t *s,int32_t sx,int32_t sy,int32_t w,int32_t h,int32_t dx,int32_t dy)
 {

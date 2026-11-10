@@ -65,10 +65,13 @@ int main(void){
  assert(vflash_gpu_upload(&g,&d,&s,0,0,8,8,0,0)==VFLASH_GPU_UNSUPPORTED);
  assert(vflash_gpu_present_view(&g,&native,96,24,0,0)==VFLASH_GPU_UNSUPPORTED);
  assert(vflash_gpu_draw_sprite(&g,&native,0,0,8,8,0,0)==VFLASH_GPU_UNSUPPORTED);
+ assert(vflash_gpu_draw_sprite_ex(&g,&native,VFLASH_GPU_TEXTURE_ABGR4444,0,0,8,8,0,0)==VFLASH_GPU_UNSUPPORTED);
+ assert(vflash_gpu_draw_sprite_ex(&g,&native,99,0,0,8,8,0,0)==VFLASH_GPU_INVALID);
  assert(vflash_gpu_draw_sprite(&g,&d,0,0,8,8,0,0)==VFLASH_GPU_UNSUPPORTED);
  assert(!vflash_gpu_caps_for_layout(&g,VFLASH_GPU_LAYOUT_ZEVIO_TILED).fill_rect);
  assert(!vflash_gpu_caps_for_layout(&g,VFLASH_GPU_LAYOUT_ZEVIO_TILED).upload);
  assert(!vflash_gpu_caps_for_layout(&g,VFLASH_GPU_LAYOUT_ZEVIO_TILED).color_key_sprite);
+ assert(!vflash_gpu_caps_for_layout(&g,VFLASH_GPU_LAYOUT_ZEVIO_TILED).alpha_blend);
  assert(vflash_gpu_shutdown(&g)==0);assert(vflash_gpu_fill_rect(&g,&d,0,0,1,1,0)==VFLASH_GPU_NOT_INITIALIZED);
 }
 '''
