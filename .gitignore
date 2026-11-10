@@ -10,5 +10,6 @@ __pycache__/
 /BOOT.BIN
 /*.zip
 /disc-xplorer
-/dumps
+/tools/disc-xplorer
+/dumps/
 /cards/
