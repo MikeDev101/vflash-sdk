@@ -24,7 +24,9 @@ def build_library(output):
     if not compiler:
         raise ValueError("host rendering tests require a native C compiler (cc or VFLASH_HOST_CC)")
     subprocess.run([compiler, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-fPIC", "-shared",
-                    *[str(ROOT / "src" / name) for name in ("draw.c", "font.c", "demo.c", "animation.c")],
+                    "-I", str(ROOT / "include"),
+                    *[str(ROOT / name) for name in ("src/graphics/draw.c", "src/graphics/font.c",
+                        "examples/common/demo.c", "examples/animation/animation.c")],
                     "-o", str(output)], check=True, capture_output=True, timeout=30)
     library = ctypes.CDLL(str(output))
     fb_pointer = ctypes.POINTER(Framebuffer)

@@ -83,7 +83,10 @@ def main():
     parser.add_argument("--emulator", type=Path, help="FlashEm executable (or set FLASHEM)")
     parser.add_argument("--bios", type=Path, help="local 2 MiB boot ROM")
     parser.add_argument("--scale", type=int, choices=(1, 2, 3, 4), default=3)
-    parser.add_argument("--demo", choices=("hello", "animation"), help="homebrew demo (default: hello)")
+    parser.add_argument("--demo", choices=("hello", "animation", "panic"), help="homebrew demo (default: hello)")
+    parser.add_argument("--panic-test", choices=("manual", "undefined", "stack", "nested", "swi", "thumb",
+                                               "restore", "system", "stack-undefined", "thumb-swi"),
+                        help="separate panic diagnostic (requires --demo panic; default: undefined)")
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--bios-menu", action="store_true", help="boot firmware with no disc; skip the homebrew build")
     modes.add_argument("--game", action="store_true", help="load a dumped game from dumps/; skip the homebrew build")
@@ -96,14 +99,19 @@ def main():
         parser.error("--disc and --list require game mode (use test-game.sh)")
     if args.demo is not None and (args.game or args.bios_menu):
         parser.error("--demo is only available in play-homebrew.sh")
+    if args.panic_test is not None and args.demo != "panic":
+        parser.error("--panic-test requires --demo panic")
     try:
         if args.list:
             for disc in find_dumped_discs(ROOT / "dumps"):
                 print(disc_label(disc, ROOT / "dumps"))
             return 0
         animated = args.demo == "animation"
+        panic = args.demo == "panic"
+        panic_test = args.panic_test or "undefined"
         disc = select_dumped_disc(ROOT / "dumps", args.disc) if args.game else ROOT / (
-            "build/animation/homebrew.cue" if animated else "build/homebrew.cue")
+            f"build/panic/{panic_test}/homebrew.cue" if panic else (
+                "build/animation/homebrew.cue" if animated else "build/homebrew.cue"))
         if args.emulator and not args.emulator.is_file():
             raise ValueError(f"emulator executable not found: {args.emulator}")
         if args.bios and not args.bios.is_file():
@@ -124,9 +132,10 @@ def main():
                 subprocess.run(["cmake", "-S", str(ROOT), "-B", str(ROOT / "build"),
                                 "-DCMAKE_TOOLCHAIN_FILE=cmake/arm-none-eabi.cmake"], check=True)
             subprocess.run(["cmake", "--build", str(ROOT / "build"), "--target",
-                            "animation_disc_image" if animated else "disc_image"], check=True)
+                            f"panic_{panic_test}_disc_image" if panic else (
+                                "animation_disc_image" if animated else "disc_image")], check=True)
         runtime = ROOT / ("build/bios" if args.bios_menu else ("build/game" if args.game else (
-            "build/play-animation" if animated else "build/play")))
+            f"build/play-panic-{panic_test}" if panic else ("build/play-animation" if animated else "build/play"))))
         runtime.mkdir(parents=True, exist_ok=True)
         # Isolate ROM lookup and config from the source/build emulator directory.
         local_emulator = runtime / "flashem"

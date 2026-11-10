@@ -10,6 +10,26 @@ import play_homebrew as launcher
 
 
 class DumpedGameTests(unittest.TestCase):
+    def test_panic_launcher_uses_a_separate_diagnostic_disc(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "build").mkdir()
+            (root / "build/CMakeCache.txt").touch()
+            bios, emulator = root / "bios.bin", root / "flashem"
+            bios.write_bytes(bytes(2097152))
+            emulator.touch()
+            for mode in ("undefined", "manual", "thumb-swi"):
+                arguments = ["play-homebrew.sh", "--demo", "panic", "--emulator", str(emulator), "--bios", str(bios)]
+                if mode != "undefined":
+                    arguments += ["--panic-test", mode]
+                with self.subTest(mode=mode), patch.object(launcher, "ROOT", root), patch.object(sys, "argv", arguments), \
+                     patch.object(launcher.subprocess, "run") as build, patch.object(launcher.shutil, "copy2"), \
+                     patch.object(launcher.os, "chdir"), patch.object(launcher.os, "execve") as execute:
+                    launcher.main()
+                    self.assertEqual(build.call_args.args[0][-1], f"panic_{mode}_disc_image")
+                    self.assertEqual(execute.call_args.args[1][-1], str(root / f"build/panic/{mode}/homebrew.cue"))
+                    self.assertNotIn("--load", execute.call_args.args[1])
+
     def test_animation_has_its_own_build_target_and_disc(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

@@ -30,6 +30,7 @@ def main():
     parser.add_argument("--disc", type=Path, help="homebrew CUE image; requires --bios")
     parser.add_argument("--frames", type=int, help="exit frame (default: 3 direct, 60 direct video, 1200 disc)")
     parser.add_argument("--timeout", type=float, help="host timeout in seconds (default: 30 direct, 120 disc)")
+    parser.add_argument("--watch-vectors", action="store_true", help="log writes to the tested firmware UND/SWI RAM slots")
     parser.add_argument("--verify-video", action="store_true",
                         help="compare video status, RAM framebuffer and actual scanout against the host C renderer")
     parser.add_argument("--verify-animation", action="store_true",
@@ -88,6 +89,8 @@ def main():
             preview_frames = list(range(frames - 121, frames - 60, 6)) + [frames - 1]
             env.update(VFLASH_VELOG="1", VFLASH_SHOT_FRAME=",".join(map(str, preview_frames)),
                        VFLASH_SHOT=str(output / "frame-%d.ppm"))
+        if args.watch_vectors:
+            env["VFLASH_WATCH"] = "1000ff84,8"
         # Isolate ROM lookup and FlashEm's automatically written config.
         with tempfile.TemporaryDirectory(prefix="runtime-", dir=output) as runtime:
             runtime = Path(runtime)
