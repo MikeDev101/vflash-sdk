@@ -2,7 +2,7 @@
 #define VFLASH_GPU_H
 #include "vflash/framebuffer.h"
 typedef enum { VFLASH_GPU_SOFTWARE, VFLASH_GPU_ZEVIO } vflash_gpu_backend_t;
-typedef enum { VFLASH_GPU_OK, VFLASH_GPU_UNSUPPORTED, VFLASH_GPU_INVALID, VFLASH_GPU_NOT_INITIALIZED, VFLASH_GPU_BUSY, VFLASH_GPU_TIMEOUT, VFLASH_GPU_DEVICE_ERROR } vflash_gpu_result_t;
+typedef enum { VFLASH_GPU_OK, VFLASH_GPU_UNSUPPORTED, VFLASH_GPU_INVALID, VFLASH_GPU_NOT_INITIALIZED, VFLASH_GPU_BUSY, VFLASH_GPU_TIMEOUT, VFLASH_GPU_DEVICE_ERROR, VFLASH_GPU_OUT_OF_MEMORY } vflash_gpu_result_t;
 typedef enum { VFLASH_GPU_LAYOUT_LINEAR, VFLASH_GPU_LAYOUT_ZEVIO_TILED } vflash_gpu_layout_t;
 typedef enum { VFLASH_GPU_TEXTURE_BGR555_KEY, VFLASH_GPU_TEXTURE_ABGR4444 } vflash_gpu_texture_format_t;
 typedef struct { uint32_t initialized, backend; } vflash_gpu_t;

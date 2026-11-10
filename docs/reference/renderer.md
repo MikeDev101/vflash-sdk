@@ -83,19 +83,25 @@ at identical atlas offsets. Sub-rectangles of textures can be rendered using
 ```c
 vflash_gpu_result_t vflash_renderer_init(vflash_renderer_t *r, const vflash_renderer_config_t *config);
 vflash_gpu_result_t vflash_renderer_shutdown(vflash_renderer_t *r);
+vflash_gpu_result_t vflash_renderer_reset_atlas(vflash_renderer_t *r);
+vflash_gpu_result_t vflash_renderer_destroy_texture(vflash_renderer_t *r, vflash_texture_t *tex);
 ```
 - Initializes the video controller, clears the linear fallback buffer, registers tiled surfaces, and binds the Zevio GPU backend.
+- `reset_atlas` waits for GPU idle, safely parks the display controller back to the linear fallback buffer (clearing any active frontbuffer lock), resets the shelf allocator to the start of the atlas, increments the internal `generation_id` (invalidating all existing texture handles in $O(1)$), and resets the backbuffer pointer.
+- `destroy_texture` verifies the texture handle matches the active generation, zeroes its `id`, `width`, and `height`, and renders the handle permanently invalid.
 - `shutdown` waits for GPU idle, unbinds the GPU, and restores linear scanout.
 
-### Texture Upload
+### Texture Upload & Frontbuffer Protection
 ```c
 vflash_gpu_result_t vflash_renderer_upload_texture(vflash_renderer_t *r, vflash_texture_t *tex,
                                                    const void *pixels, uint32_t width, uint32_t height,
                                                    vflash_texture_type_t type);
 ```
 - Allocates an offscreen sub-region from the atlas using a row shelf allocator (4-pixel word aligned).
+- If the requested texture exceeds the remaining atlas shelf space, returns `VFLASH_GPU_OUT_OF_MEMORY` without altering allocator pointers.
+- Preserves frontbuffer write protection: if either surface $A$ or surface $B$ is actively being scanned out by the display controller (`vflash_video_tiled_address() != 0`), direct uploads are rejected with `VFLASH_GPU_BUSY` to prevent screen tearing or memory conflicts. Rebuilding an atlas should be performed between scenes with `vflash_renderer_reset_atlas()`.
 - Uploads pixel data to both $A$ and $B$ backing allocations via D0/0E streaming with texture-cache flush (`0x89`).
-- Populates `tex` with the assigned `atlas_x`, `atlas_y`, `width`, `height`, and `type`.
+- Populates `tex` with the assigned `atlas_x`, `atlas_y`, `width`, `height`, `type`, and the renderer's current `generation_id`.
 
 ### Drawing Operations
 ```c
@@ -106,6 +112,7 @@ vflash_gpu_result_t vflash_renderer_draw_sub(vflash_renderer_t *r, const vflash_
                                              int32_t sx, int32_t sy, int32_t w, int32_t h,
                                              int32_t dx, int32_t dy);
 ```
+- Draw operations reject destroyed textures (`tex->id == 0`) and stale handles from previous atlas generations (`tex->id != r->generation_id`) with `VFLASH_GPU_INVALID`.
 
 ### Frame Presentation
 ```c
@@ -119,7 +126,13 @@ vflash_gpu_result_t vflash_renderer_present(vflash_renderer_t *r);
 
 ## 5. Verification Matrix
 
-The renderer abstraction is validated by `tools/gpu_renderer_smoke.py` across 6 distinct hardware/emulator variants:
-- MMU: `off` and `on` (identity-mapped vector page and SDRAM sections).
-- Final presentation targets: `a` (surface A at 0,0), `b` (surface B at 224,208), and `linear` (clean linear restore).
-- Independent host oracles check 32 animation frames, 356 GPU command lists, zero active frontbuffer modifications, exact memory bit patterns in playfield and atlas, and exact pixel output in `frame.ppm`.
+The renderer abstraction and its lifecycle management are validated across two dedicated smoke suites:
+1. **`tools/gpu_renderer_smoke.py`:** Validates basic double-buffering, multi-mode sprite rendering (opaque, keyed, translucent), scissor clipping, and linear scanout recovery across 6 variants.
+2. **`tools/gpu_lifecycle_smoke.py`:** Validates multi-scene lifecycle transitions:
+   - Scene 1 asset uploads and 16 frames of animation.
+   - Atlas exhaustion rejection (`VFLASH_GPU_OUT_OF_MEMORY`) without memory pointer corruption.
+   - Frontbuffer upload protection rejection (`VFLASH_GPU_BUSY`) during active display scanout.
+   - Individual texture destruction (`destroy_texture`) and stale handle rejection (`VFLASH_GPU_INVALID`).
+   - Atlas reset (`reset_atlas`), linear parking, generation advancement, and Scene 2 re-allocation with distinct texture geometry.
+   - Scene 2 rendering for 16 frames (total 32 frames) with exact bit-level dual-surface coherency ($A$ and $B$ surfaces identical) and scanout verification.
+

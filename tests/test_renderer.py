@@ -18,6 +18,8 @@ int main(void) {
     vflash_texture_t tex;
     uint16_t dummy_pix[64];
     assert(vflash_renderer_shutdown(&r) == VFLASH_GPU_NOT_INITIALIZED);
+    assert(vflash_renderer_reset_atlas(&r) == VFLASH_GPU_NOT_INITIALIZED);
+    assert(vflash_renderer_destroy_texture(&r, &tex) == VFLASH_GPU_NOT_INITIALIZED);
     assert(vflash_renderer_clear(&r, 0) == VFLASH_GPU_NOT_INITIALIZED);
     assert(vflash_renderer_fill_rect(&r, 0, 0, 10, 10, 0) == VFLASH_GPU_NOT_INITIALIZED);
     assert(vflash_renderer_set_clip(&r, 0, 0, 10, 10) == VFLASH_GPU_NOT_INITIALIZED);
@@ -107,8 +109,9 @@ int main(void) {
     bad.surface_bytes = 1024;
     assert(vflash_renderer_init(&r, &bad) == VFLASH_GPU_INVALID);
 
-    /* 4. Mock initialized renderer for draw and upload validation */
+    /* 4. Mock initialized renderer for draw, lifecycle, and upload validation */
     r.initialized = 1;
+    r.generation_id = 1;
     r.config = cfg;
     r.alloc_x = cfg.atlas_x;
     r.alloc_y = cfg.atlas_y;
@@ -122,9 +125,30 @@ int main(void) {
     assert(vflash_renderer_upload_texture(&r, &tex, dummy_pix, 8, 8, (vflash_texture_type_t)99) == VFLASH_GPU_INVALID); /* invalid type */
     assert(vflash_renderer_upload_texture(&r, &tex, dummy_pix, 64, 8, VFLASH_TEXTURE_OPAQUE) == VFLASH_GPU_INVALID); /* wider than atlas */
 
+    /* Allocation exhaustion returns OUT_OF_MEMORY without altering alloc pointers */
+    r.alloc_y = cfg.atlas_y + cfg.atlas_height - 4; /* only 4 lines remain */
+    uint32_t saved_x = r.alloc_x, saved_y = r.alloc_y, saved_row_h = r.alloc_row_h;
+    assert(vflash_renderer_upload_texture(&r, &tex, dummy_pix, 8, 8, VFLASH_TEXTURE_OPAQUE) == VFLASH_GPU_OUT_OF_MEMORY);
+    assert(r.alloc_x == saved_x && r.alloc_y == saved_y && r.alloc_row_h == saved_row_h);
+    r.alloc_y = cfg.atlas_y;
+
+    /* Texture destruction and lifecycle validation */
+    tex.width = 16; tex.height = 16; tex.atlas_x = 96; tex.atlas_y = 0; tex.type = VFLASH_TEXTURE_OPAQUE; tex.id = 1;
+    assert(vflash_renderer_destroy_texture(NULL, &tex) == VFLASH_GPU_NOT_INITIALIZED);
+    assert(vflash_renderer_destroy_texture(&r, NULL) == VFLASH_GPU_INVALID);
+    vflash_texture_t bad_tex = tex;
+    bad_tex.id = 99; /* mismatched generation */
+    assert(vflash_renderer_destroy_texture(&r, &bad_tex) == VFLASH_GPU_INVALID);
+    assert(vflash_renderer_destroy_texture(&r, &tex) == VFLASH_GPU_OK);
+    assert(tex.id == 0 && tex.width == 0 && tex.height == 0);
+    assert(vflash_renderer_destroy_texture(&r, &tex) == VFLASH_GPU_INVALID); /* already destroyed */
+
     /* Draw validation */
     assert(vflash_renderer_draw(&r, NULL, 0, 0) == VFLASH_GPU_INVALID);
-    tex.width = 16; tex.height = 16; tex.atlas_x = 96; tex.atlas_y = 0; tex.type = VFLASH_TEXTURE_OPAQUE;
+    assert(vflash_renderer_draw(&r, &tex, 0, 0) == VFLASH_GPU_INVALID); /* destroyed texture */
+    tex.width = 16; tex.height = 16; tex.atlas_x = 96; tex.atlas_y = 0; tex.type = VFLASH_TEXTURE_OPAQUE; tex.id = 99;
+    assert(vflash_renderer_draw(&r, &tex, 0, 0) == VFLASH_GPU_INVALID); /* stale generation */
+    tex.id = 1; /* valid generation */
     assert(vflash_renderer_draw_sub(&r, NULL, 0, 0, 16, 16, 0, 0) == VFLASH_GPU_INVALID);
     assert(vflash_renderer_draw_sub(&r, &tex, -1, 0, 16, 16, 0, 0) == VFLASH_GPU_INVALID);
     assert(vflash_renderer_draw_sub(&r, &tex, 0, -1, 16, 16, 0, 0) == VFLASH_GPU_INVALID);

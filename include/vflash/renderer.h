@@ -20,6 +20,7 @@ typedef struct {
     uint32_t width;
     uint32_t height;
     vflash_texture_type_t type;
+    uint32_t id;
 } vflash_texture_t;
 
 typedef struct {
@@ -51,10 +52,14 @@ typedef struct {
     uint32_t alloc_row_h;
     int32_t clip_x, clip_y, clip_w, clip_h;
     uint32_t initialized;
+    uint32_t generation_id;
 } vflash_renderer_t;
 
 vflash_gpu_result_t vflash_renderer_init(vflash_renderer_t *r, const vflash_renderer_config_t *config);
 vflash_gpu_result_t vflash_renderer_shutdown(vflash_renderer_t *r);
+
+vflash_gpu_result_t vflash_renderer_reset_atlas(vflash_renderer_t *r);
+vflash_gpu_result_t vflash_renderer_destroy_texture(vflash_renderer_t *r, vflash_texture_t *tex);
 
 vflash_gpu_result_t vflash_renderer_clear(vflash_renderer_t *r, uint32_t rgb);
 vflash_gpu_result_t vflash_renderer_fill_rect(vflash_renderer_t *r, int32_t x, int32_t y, int32_t w, int32_t h, uint32_t rgb);

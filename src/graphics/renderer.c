@@ -45,6 +45,7 @@ vflash_gpu_result_t vflash_renderer_init(vflash_renderer_t *r, const vflash_rend
     r->clip_h = (int32_t)cfg->playfield_height;
     vflash_gpu_clip(&r->surf_a, 0, 0, r->clip_w, r->clip_h);
     vflash_gpu_clip(&r->surf_b, 0, 0, r->clip_w, r->clip_h);
+    r->generation_id = 1;
     r->initialized = 1;
     return VFLASH_GPU_OK;
 }
@@ -58,6 +59,32 @@ vflash_gpu_result_t vflash_renderer_shutdown(vflash_renderer_t *r)
     return res;
 }
 
+vflash_gpu_result_t vflash_renderer_reset_atlas(vflash_renderer_t *r)
+{
+    if (!r || !r->initialized) return VFLASH_GPU_NOT_INITIALIZED;
+    vflash_gpu_result_t res = vflash_gpu_wait_idle(&r->gpu);
+    if (res) return res;
+    if (!vflash_video_restore_linear()) return VFLASH_GPU_DEVICE_ERROR;
+    r->alloc_x = r->config.atlas_x;
+    r->alloc_y = r->config.atlas_y;
+    r->alloc_row_h = 0;
+    r->generation_id++;
+    if (!r->generation_id) r->generation_id = 1;
+    r->current = &r->surf_a;
+    vflash_gpu_clip(r->current, r->clip_x, r->clip_y, r->clip_w, r->clip_h);
+    return VFLASH_GPU_OK;
+}
+
+vflash_gpu_result_t vflash_renderer_destroy_texture(vflash_renderer_t *r, vflash_texture_t *tex)
+{
+    if (!r || !r->initialized) return VFLASH_GPU_NOT_INITIALIZED;
+    if (!tex || !tex->id || tex->id != r->generation_id) return VFLASH_GPU_INVALID;
+    tex->id = 0;
+    tex->width = 0;
+    tex->height = 0;
+    return VFLASH_GPU_OK;
+}
+
 vflash_gpu_result_t vflash_renderer_upload_texture(vflash_renderer_t *r, vflash_texture_t *tex,
                                                    const void *pixels, uint32_t width, uint32_t height,
                                                    vflash_texture_type_t type)
@@ -68,18 +95,35 @@ vflash_gpu_result_t vflash_renderer_upload_texture(vflash_renderer_t *r, vflash_
     if (type > VFLASH_TEXTURE_TRANSLUCENT) return VFLASH_GPU_INVALID;
     if (width > r->config.atlas_width || height > r->config.atlas_height) return VFLASH_GPU_INVALID;
 
-    uint32_t alloc_w = (width + 3u) & ~3u;
-    if (r->alloc_x + alloc_w > r->config.atlas_x + r->config.atlas_width) {
-        r->alloc_x = r->config.atlas_x;
-        r->alloc_y += r->alloc_row_h;
-        r->alloc_row_h = 0;
+    uint32_t front = vflash_video_tiled_address();
+    if (front) {
+        uint32_t fbytes = vflash_video_tiled_bytes();
+        uint32_t sa_bytes = (r->surf_a.fb.height >> 3) * 16384u;
+        uint32_t sb_bytes = (r->surf_b.fb.height >> 3) * 16384u;
+        if ((r->surf_a.physical_address < front + fbytes && front < r->surf_a.physical_address + sa_bytes) ||
+            (r->surf_b.physical_address < front + fbytes && front < r->surf_b.physical_address + sb_bytes)) {
+            return VFLASH_GPU_BUSY;
+        }
     }
-    if (r->alloc_y + height > r->config.atlas_y + r->config.atlas_height) return VFLASH_GPU_INVALID;
 
-    uint32_t ax = r->alloc_x;
-    uint32_t ay = r->alloc_y;
-    r->alloc_x += alloc_w;
-    if (height > r->alloc_row_h) r->alloc_row_h = height;
+    uint32_t alloc_w = (width + 3u) & ~3u;
+    uint32_t next_x = r->alloc_x;
+    uint32_t next_y = r->alloc_y;
+    uint32_t next_row_h = r->alloc_row_h;
+
+    if (next_x + alloc_w > r->config.atlas_x + r->config.atlas_width) {
+        next_x = r->config.atlas_x;
+        next_y += next_row_h;
+        next_row_h = 0;
+    }
+    if (next_y + height > r->config.atlas_y + r->config.atlas_height) {
+        return VFLASH_GPU_OUT_OF_MEMORY;
+    }
+
+    uint32_t ax = next_x;
+    uint32_t ay = next_y;
+    next_x += alloc_w;
+    if (height > next_row_h) next_row_h = height;
 
     vflash_framebuffer_t src_fb;
     src_fb.pixels = (uint16_t *)(uintptr_t)pixels;
@@ -107,11 +151,16 @@ vflash_gpu_result_t vflash_renderer_upload_texture(vflash_renderer_t *r, vflash_
     vflash_gpu_clip(&r->surf_b, r->clip_x, r->clip_y, r->clip_w, r->clip_h);
     if (res) return res;
 
+    r->alloc_x = next_x;
+    r->alloc_y = next_y;
+    r->alloc_row_h = next_row_h;
+
     tex->atlas_x = ax;
     tex->atlas_y = ay;
     tex->width = width;
     tex->height = height;
     tex->type = type;
+    tex->id = r->generation_id;
     return VFLASH_GPU_OK;
 }
 
@@ -160,7 +209,7 @@ vflash_gpu_result_t vflash_renderer_draw_sub(vflash_renderer_t *r, const vflash_
                                              int32_t dx, int32_t dy)
 {
     if (!r || !r->initialized) return VFLASH_GPU_NOT_INITIALIZED;
-    if (!tex) return VFLASH_GPU_INVALID;
+    if (!tex || !tex->id || tex->id != r->generation_id) return VFLASH_GPU_INVALID;
     if (sx < 0 || sy < 0 || w < 0 || h < 0) return VFLASH_GPU_INVALID;
     if ((uint32_t)sx + (uint32_t)w > tex->width || (uint32_t)sy + (uint32_t)h > tex->height) return VFLASH_GPU_INVALID;
     int32_t ax = (int32_t)tex->atlas_x + sx;
