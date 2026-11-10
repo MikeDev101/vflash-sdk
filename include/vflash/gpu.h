@@ -25,6 +25,7 @@ vflash_gpu_caps_t vflash_gpu_caps_for_layout(const vflash_gpu_t *gpu,vflash_gpu_
  * Caller owns lifetime. See docs/reference/gpu-native-hal.md before enabling ZEVIO. */
 vflash_gpu_result_t vflash_gpu_surface_register_tiled_ex(vflash_gpu_surface_t *surface,void *pixels,uint32_t physical_address,uint32_t width,uint32_t height,uint32_t bytes);
 vflash_gpu_result_t vflash_gpu_surface_register_tiled(vflash_gpu_surface_t *surface,void *pixels,uint32_t physical_address,uint32_t bytes);
+vflash_gpu_result_t vflash_gpu_present_view(vflash_gpu_t *gpu,vflash_gpu_surface_t *surface,uint32_t width,uint32_t height,int32_t x,int32_t y);
 vflash_gpu_result_t vflash_gpu_present(vflash_gpu_t *gpu,vflash_gpu_surface_t *surface,int32_t x,int32_t y);
 vflash_gpu_result_t vflash_gpu_copy_region(vflash_gpu_t *gpu,vflash_gpu_surface_t *surface,int32_t sx,int32_t sy,int32_t w,int32_t h,int32_t dx,int32_t dy);
 vflash_gpu_result_t vflash_gpu_upload(vflash_gpu_t *gpu,vflash_gpu_surface_t *dst,const vflash_gpu_surface_t *src,int32_t sx,int32_t sy,int32_t w,int32_t h,int32_t dx,int32_t dy);

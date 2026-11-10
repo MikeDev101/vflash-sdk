@@ -114,12 +114,13 @@ static int tiled_vblank(void)
         if ((uint16_t)(vflash_clock_ticks()-start)>=1000) return 0;
     return 1;
 }
-int vflash_video_present_tiled_ex(uint32_t address,uint32_t width,uint32_t height,int32_t x,int32_t y)
+int vflash_video_present_tiled_view(uint32_t address,uint32_t backing_bytes,uint32_t width,uint32_t height,int32_t x,int32_t y)
 {
     if (!width || !height || (width&31) || (height&7) || width>VFLASH_WIDTH || height>VFLASH_HEIGHT) return 0;
     if (x<0 || y<0 || (int64_t)x+width>VFLASH_WIDTH || (int64_t)y+height>VFLASH_HEIGHT) return 0;
     uint32_t needed=(height>>3)*16384u;
-    if ((address&63) || address<0x10000000 || address>0x11000000-needed) return 0;
+    if (backing_bytes<needed || (backing_bytes&16383u) || backing_bytes>16u*1024u*1024u) return 0;
+    if ((address&63) || address<0x10000000 || address>0x11000000-backing_bytes) return 0;
     if (VE_REG(VE_SIZE)!=SCREEN_END || VE_REG(VE_IRQ_MASK)!=0 || VE_REG(VE_ENABLE)!=16) return 0;
     if (!tiled_address) {
         uint32_t current=VE_REG(VE_ADDRESS0);
@@ -136,7 +137,11 @@ int vflash_video_present_tiled_ex(uint32_t address,uint32_t width,uint32_t heigh
     VE_REG(VE_END0)=(uint32_t)(y+(int32_t)height-1)<<16|(uint32_t)(x+(int32_t)width-1);
     VE_REG(VE_ADDRESS0)=address;
     __asm__ volatile("" ::: "memory");VE_REG(VE_ENABLE)=16;
-    tiled_address=address;tiled_bytes=needed;return 1;
+    tiled_address=address;tiled_bytes=backing_bytes;return 1;
+}
+int vflash_video_present_tiled_ex(uint32_t address,uint32_t width,uint32_t height,int32_t x,int32_t y)
+{
+    return vflash_video_present_tiled_view(address,(height>>3)*16384u,width,height,x,y);
 }
 int vflash_video_present_tiled(uint32_t address,int32_t x,int32_t y)
 {

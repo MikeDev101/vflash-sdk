@@ -119,15 +119,20 @@ vflash_gpu_result_t gpu_zevio_upload(vflash_gpu_t *g,vflash_gpu_surface_t *d,con
     commands[4]=s->physical_address+offset;commands[5]=0x89000000;commands[6]=0x95000000;
     return submit(g,d,7);
 }
-vflash_gpu_result_t gpu_zevio_present(vflash_gpu_t *g,vflash_gpu_surface_t *s,int32_t x,int32_t y)
+vflash_gpu_result_t gpu_zevio_present_view(vflash_gpu_t *g,vflash_gpu_surface_t *s,uint32_t w,uint32_t h,int32_t x,int32_t y)
 {
     if (owner!=g) return VFLASH_GPU_NOT_INITIALIZED;
     if (poisoned) return VFLASH_GPU_TIMEOUT;
     if (!cpu_safe()) return VFLASH_GPU_UNSUPPORTED;
     if (!gpu_tiled_valid(s)) return VFLASH_GPU_UNSUPPORTED;
-    if (s->fb.width>VFLASH_WIDTH || s->fb.height>VFLASH_HEIGHT) return VFLASH_GPU_INVALID;
-    if (x<0 || y<0 || (int64_t)x+s->fb.width>VFLASH_WIDTH || (int64_t)y+s->fb.height>VFLASH_HEIGHT) return VFLASH_GPU_INVALID;
-    return vflash_video_present_tiled_ex(s->physical_address,s->fb.width,s->fb.height,x,y) ? VFLASH_GPU_OK:VFLASH_GPU_DEVICE_ERROR;
+    if (!w || !h || (w&31) || (h&7) || w>s->fb.width || h>s->fb.height || w>VFLASH_WIDTH || h>VFLASH_HEIGHT) return VFLASH_GPU_INVALID;
+    if (x<0 || y<0 || (int64_t)x+w>VFLASH_WIDTH || (int64_t)y+h>VFLASH_HEIGHT) return VFLASH_GPU_INVALID;
+    return vflash_video_present_tiled_view(s->physical_address,(s->fb.height>>3)*16384u,w,h,x,y) ? VFLASH_GPU_OK:VFLASH_GPU_DEVICE_ERROR;
+}
+vflash_gpu_result_t gpu_zevio_present(vflash_gpu_t *g,vflash_gpu_surface_t *s,int32_t x,int32_t y)
+{
+    if (!s) return VFLASH_GPU_UNSUPPORTED;
+    return gpu_zevio_present_view(g,s,s->fb.width,s->fb.height,x,y);
 }
 vflash_gpu_result_t gpu_zevio_stats(vflash_gpu_t *g,vflash_gpu_stats_t *s)
 {
@@ -154,6 +159,8 @@ vflash_gpu_result_t gpu_zevio_copy(vflash_gpu_t *g,vflash_gpu_surface_t *s,int32
 {(void)g;(void)s;(void)x;(void)y;(void)w;(void)h;(void)dx;(void)dy;return VFLASH_GPU_UNSUPPORTED;}
 vflash_gpu_result_t gpu_zevio_upload(vflash_gpu_t *g,vflash_gpu_surface_t *d,const vflash_gpu_surface_t *s,int32_t sx,int32_t sy,int32_t w,int32_t h,int32_t dx,int32_t dy)
 {(void)g;(void)d;(void)s;(void)sx;(void)sy;(void)w;(void)h;(void)dx;(void)dy;return VFLASH_GPU_UNSUPPORTED;}
+vflash_gpu_result_t gpu_zevio_present_view(vflash_gpu_t *g,vflash_gpu_surface_t *s,uint32_t w,uint32_t h,int32_t x,int32_t y)
+{(void)g;(void)s;(void)w;(void)h;(void)x;(void)y;return VFLASH_GPU_UNSUPPORTED;}
 vflash_gpu_result_t gpu_zevio_present(vflash_gpu_t *g,vflash_gpu_surface_t *s,int32_t x,int32_t y) {(void)g;(void)s;(void)x;(void)y;return VFLASH_GPU_UNSUPPORTED;}
 vflash_gpu_result_t gpu_zevio_shutdown(vflash_gpu_t *g) {(void)g;return VFLASH_GPU_UNSUPPORTED;}
 #endif

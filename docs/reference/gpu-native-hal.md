@@ -92,16 +92,24 @@ scheduler, buffer reference counting or asynchronous fence API.
 
 ## Presentation stays in the video driver
 
-`vflash_gpu_present(gpu, surface, x, y)` delegates to
-`vflash_video_present_tiled_ex` (`vflash_video_present_tiled` remains for 64x16).
-Placement and surface dimensions are bounds-checked within 320x240; tests cover
-64x16 at (13,19), (0,0), (256,224) and 96x24 at (224,216). The video driver owns
-vblank polling, temporary layout/window changes, the physical scanout pointer,
-the active backing-size guard and restoration. It requires the existing
-SDK-owned linear buffer/configuration, saves its address, and restores the
-canonical full linear window on successful native shutdown. It never converts
-or copies tiled pixels. Normal linear present/init are rejected while tiled
-scanout is active. The existing backbuffer/front-bank state remains intact.
+`vflash_gpu_present(gpu, surface, x, y)` and
+`vflash_gpu_present_view(gpu, surface, w, h, x, y)` delegate to
+`vflash_video_present_tiled_view` (`vflash_video_present_tiled_ex` and
+`vflash_video_present_tiled` remain for full-surface and 64x16 presentation).
+`vflash_gpu_present_view` presents only the top-left `w x h` tile-aligned
+viewport (`x=0..w-1, y=0..h-1`) of a larger tiled surface while keeping
+offscreen columns (`x >= w`) or rows (`y >= h`) in the same 1024-pixel-stride
+backing allocation available as a sprite/tile atlas for `D2` copies. Placement
+and viewport dimensions are bounds-checked within 320x240; tests cover 64x16 at
+(13,19), (0,0), (256,224), 96x24 at (224,216), and a 96x32 viewport of a 128x32
+surface at (16,24), (0,0) and (224,208). The video driver owns vblank polling,
+temporary layout/window changes, the physical scanout pointer, the full
+backing-allocation size guard (`(surface->fb.height / 8) * 16384` bytes) and
+restoration. It requires the existing SDK-owned linear buffer/configuration,
+saves its address, and restores the canonical full linear window on successful
+native shutdown. It never converts or copies tiled pixels. Normal linear
+present/init are rejected while tiled scanout is active. The existing
+backbuffer/front-bank state remains intact.
 
 Presentation waits for a fresh vblank with a 100 ms timeout. Shutdown also waits
 for vblank before restoring linear scanout; it returns an error if restoration
@@ -141,6 +149,33 @@ python3 tools/gpu_frame_smoke.py --emulator build/emulator/flashem \
 Evidence includes original-firmware entry traces/hashes, RAM, actual frame.ppm,
 video address logs and `frame-result.json`. The ELF is used only for symbols,
 not injected into guest memory. Existing software-HAL tests remain separate.
+
+## Native sprite-animation demonstration
+
+`examples/gpu/sprite.c` demonstrates a shared-backing sprite pipeline using two
+`128x32` tiled allocations (`65536` bytes each, four 8-row bands):
+
+- `x=0..95, y=0..31`: visible `96x32` playfield.
+- `x=96..127, y=0..31`: offscreen `32x32` sprite atlas in the same 1024-wide
+  tiled backing allocation.
+
+During initialization, a `16x16` opaque multicolor pattern in linear SDRAM is
+uploaded once into each surface's offscreen atlas at `(104, 8)` via
+`vflash_gpu_upload` (`2` uploads total). Across 32 alternating A/B frames, each
+backbuffer redraws its `96x32` background using five native `D3` fills, copies
+the `16x16` sprite from `(104, 8)` into its animated playfield position using
+`vflash_gpu_copy_region` (`D2`, crossing both `x=32`/`64` and `y=8`/`16`/`24`
+tile boundaries), and presents only the `96x32` viewport via
+`vflash_gpu_present_view`. Each run completes `194` native lists (`2` init
+uploads + `32 * 6` frame lists).
+
+```sh
+cmake --build build --target gpu_sprite_off_a_disc_image gpu_sprite_off_b_disc_image \
+  gpu_sprite_off_linear_disc_image gpu_sprite_on_a_disc_image \
+  gpu_sprite_on_b_disc_image gpu_sprite_on_linear_disc_image
+python3 tools/gpu_sprite_smoke.py --emulator build/emulator/flashem \
+  --bios 'dumps/A29L160ATV@TSOP48.BIN' --out build/gpu-sprite-acceptance
+```
 
 ## Validation result
 

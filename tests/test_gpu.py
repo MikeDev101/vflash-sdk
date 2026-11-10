@@ -63,6 +63,7 @@ int main(void){
  assert(vflash_gpu_surface_register_tiled_ex(&native,(void *)0x10F88040,0x10F88040,320,240,491520)==VFLASH_GPU_INVALID);
  assert(vflash_gpu_upload(&g,&native,&s,0,0,8,8,0,0)==VFLASH_GPU_UNSUPPORTED);
  assert(vflash_gpu_upload(&g,&d,&s,0,0,8,8,0,0)==VFLASH_GPU_UNSUPPORTED);
+ assert(vflash_gpu_present_view(&g,&native,96,24,0,0)==VFLASH_GPU_UNSUPPORTED);
  assert(!vflash_gpu_caps_for_layout(&g,VFLASH_GPU_LAYOUT_ZEVIO_TILED).fill_rect);
  assert(!vflash_gpu_caps_for_layout(&g,VFLASH_GPU_LAYOUT_ZEVIO_TILED).upload);
  assert(vflash_gpu_shutdown(&g)==0);assert(vflash_gpu_fill_rect(&g,&d,0,0,1,1,0)==VFLASH_GPU_NOT_INITIALIZED);

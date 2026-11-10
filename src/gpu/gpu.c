@@ -123,6 +123,11 @@ vflash_gpu_caps_t vflash_gpu_caps_for_layout(const vflash_gpu_t *g,vflash_gpu_la
         c.hardware_accelerated=c.fill_rect=c.present=c.same_surface_copy=c.upload=1;
     return c;
 }
+vflash_gpu_result_t vflash_gpu_present_view(vflash_gpu_t *g,vflash_gpu_surface_t *s,uint32_t w,uint32_t h,int32_t x,int32_t y)
+{
+    vflash_gpu_result_t r=ready(g);if (r) return r;
+    return g->backend==VFLASH_GPU_ZEVIO ? gpu_zevio_present_view(g,s,w,h,x,y):VFLASH_GPU_UNSUPPORTED;
+}
 vflash_gpu_result_t vflash_gpu_present(vflash_gpu_t *g,vflash_gpu_surface_t *s,int32_t x,int32_t y)
 {
     vflash_gpu_result_t r=ready(g);if (r) return r;
