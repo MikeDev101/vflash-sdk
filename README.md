@@ -39,6 +39,12 @@ FlashEm executable at `build/emulator/flashem`, through `FLASHEM`, or via
 ./play-homebrew.sh
 ./play-homebrew.sh --demo animation
 ./play-homebrew.sh --demo panic
+./play-homebrew.sh --demo mmu-animation
+./play-homebrew.sh --demo gpu-software
+./play-homebrew.sh --demo gpu-native
+./play-homebrew.sh --demo gpu-tiled --gpu-mmu on --gpu-view b
+./play-homebrew.sh --demo gpu-frame --gpu-mmu on --gpu-view a
+./play-homebrew.sh --demo gpu-sprite --gpu-mmu on --gpu-view a
 ./open-bios.sh
 ./test-game.sh
 ```

@@ -9,6 +9,57 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 MEMCARD_SIZE = 8 * 1024 * 1024
+DEMOS = (
+    "hello",
+    "animation",
+    "panic",
+    "mmu-identity",
+    "mmu-undefined",
+    "mmu-animation",
+    "gpu-software",
+    "gpu-mmu",
+    "gpu-native",
+    "gpu-tiled",
+    "gpu-frame",
+    "gpu-sprite",
+)
+PANIC_TESTS = (
+    "manual", "undefined", "stack", "nested", "swi", "thumb",
+    "restore", "system", "stack-undefined", "thumb-swi",
+)
+GPU_MMU_MODES = ("off", "on")
+GPU_VIEWS = ("a", "b", "linear")
+
+
+def resolve_demo(demo, panic_test, gpu_mmu, gpu_view):
+    demo = demo or "hello"
+    if demo == "hello":
+        return "disc_image", "build/homebrew.cue", "build/play"
+    if demo == "animation":
+        return "animation_disc_image", "build/animation/homebrew.cue", "build/play-animation"
+    if demo == "panic":
+        mode = panic_test or "undefined"
+        return f"panic_{mode}_disc_image", f"build/panic/{mode}/homebrew.cue", f"build/play-panic-{mode}"
+    if demo == "mmu-identity":
+        return "mmu_identity_disc_image", "build/mmu/identity/homebrew.cue", "build/play-mmu-identity"
+    if demo == "mmu-undefined":
+        return "mmu_undefined_disc_image", "build/mmu/undefined/homebrew.cue", "build/play-mmu-undefined"
+    if demo == "mmu-animation":
+        return "mmu_animation_disc_image", "build/mmu/animation/homebrew.cue", "build/play-mmu-animation"
+    if demo == "gpu-software":
+        return "gpu_software_disc_image", "build/gpu/software/homebrew.cue", "build/play-gpu-software"
+    if demo == "gpu-mmu":
+        return "gpu_mmu_disc_image", "build/gpu/mmu/homebrew.cue", "build/play-gpu-mmu"
+    if demo == "gpu-native":
+        return "gpu_native_disc_image", "build/gpu/native/homebrew.cue", "build/play-gpu-native"
+    mmu = gpu_mmu or "off"
+    view = gpu_view or "a"
+    kind = demo.split("-", 1)[1]
+    return (
+        f"gpu_{kind}_{mmu}_{view}_disc_image",
+        f"build/gpu/{kind}/{mmu}/{view}/homebrew.cue",
+        f"build/play-gpu-{kind}-{mmu}-{view}",
+    )
 
 
 def find_dumped_discs(folder):
@@ -83,10 +134,13 @@ def main():
     parser.add_argument("--emulator", type=Path, help="FlashEm executable (or set FLASHEM)")
     parser.add_argument("--bios", type=Path, help="local 2 MiB boot ROM")
     parser.add_argument("--scale", type=int, choices=(1, 2, 3, 4), default=3)
-    parser.add_argument("--demo", choices=("hello", "animation", "panic"), help="homebrew demo (default: hello)")
-    parser.add_argument("--panic-test", choices=("manual", "undefined", "stack", "nested", "swi", "thumb",
-                                               "restore", "system", "stack-undefined", "thumb-swi"),
+    parser.add_argument("--demo", choices=DEMOS, help="homebrew demo or diagnostic (default: hello)")
+    parser.add_argument("--panic-test", choices=PANIC_TESTS,
                         help="separate panic diagnostic (requires --demo panic; default: undefined)")
+    parser.add_argument("--gpu-mmu", choices=GPU_MMU_MODES,
+                        help="MMU mode for gpu-tiled/gpu-frame/gpu-sprite (default: off)")
+    parser.add_argument("--gpu-view", choices=GPU_VIEWS,
+                        help="final view for gpu-tiled/gpu-frame/gpu-sprite (default: a)")
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--bios-menu", action="store_true", help="boot firmware with no disc; skip the homebrew build")
     modes.add_argument("--game", action="store_true", help="load a dumped game from dumps/; skip the homebrew build")
@@ -101,17 +155,15 @@ def main():
         parser.error("--demo is only available in play-homebrew.sh")
     if args.panic_test is not None and args.demo != "panic":
         parser.error("--panic-test requires --demo panic")
+    if (args.gpu_mmu is not None or args.gpu_view is not None) and args.demo not in ("gpu-tiled", "gpu-frame", "gpu-sprite"):
+        parser.error("--gpu-mmu and --gpu-view require --demo gpu-tiled, gpu-frame, or gpu-sprite")
     try:
         if args.list:
             for disc in find_dumped_discs(ROOT / "dumps"):
                 print(disc_label(disc, ROOT / "dumps"))
             return 0
-        animated = args.demo == "animation"
-        panic = args.demo == "panic"
-        panic_test = args.panic_test or "undefined"
-        disc = select_dumped_disc(ROOT / "dumps", args.disc) if args.game else ROOT / (
-            f"build/panic/{panic_test}/homebrew.cue" if panic else (
-                "build/animation/homebrew.cue" if animated else "build/homebrew.cue"))
+        target, disc_rel, runtime_rel = resolve_demo(args.demo, args.panic_test, args.gpu_mmu, args.gpu_view)
+        disc = select_dumped_disc(ROOT / "dumps", args.disc) if args.game else ROOT / disc_rel
         if args.emulator and not args.emulator.is_file():
             raise ValueError(f"emulator executable not found: {args.emulator}")
         if args.bios and not args.bios.is_file():
@@ -131,11 +183,8 @@ def main():
             if not (ROOT / "build/CMakeCache.txt").exists():
                 subprocess.run(["cmake", "-S", str(ROOT), "-B", str(ROOT / "build"),
                                 "-DCMAKE_TOOLCHAIN_FILE=cmake/arm-none-eabi.cmake"], check=True)
-            subprocess.run(["cmake", "--build", str(ROOT / "build"), "--target",
-                            f"panic_{panic_test}_disc_image" if panic else (
-                                "animation_disc_image" if animated else "disc_image")], check=True)
-        runtime = ROOT / ("build/bios" if args.bios_menu else ("build/game" if args.game else (
-            f"build/play-panic-{panic_test}" if panic else ("build/play-animation" if animated else "build/play"))))
+            subprocess.run(["cmake", "--build", str(ROOT / "build"), "--target", target], check=True)
+        runtime = ROOT / ("build/bios" if args.bios_menu else ("build/game" if args.game else runtime_rel))
         runtime.mkdir(parents=True, exist_ok=True)
         # Isolate ROM lookup and config from the source/build emulator directory.
         local_emulator = runtime / "flashem"

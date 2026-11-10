@@ -49,6 +49,37 @@ class DumpedGameTests(unittest.TestCase):
                 self.assertEqual(execute.call_args.args[1][-1], str(root / "build/animation/homebrew.cue"))
                 self.assertNotIn("--load", execute.call_args.args[1])
 
+    def test_mmu_and_gpu_demos_resolve_their_build_targets_and_discs(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "build").mkdir()
+            (root / "build/CMakeCache.txt").touch()
+            bios, emulator = root / "bios.bin", root / "flashem"
+            bios.write_bytes(bytes(2097152))
+            emulator.touch()
+            cases = [
+                (["--demo", "mmu-identity"], "mmu_identity_disc_image", "build/mmu/identity/homebrew.cue"),
+                (["--demo", "mmu-undefined"], "mmu_undefined_disc_image", "build/mmu/undefined/homebrew.cue"),
+                (["--demo", "mmu-animation"], "mmu_animation_disc_image", "build/mmu/animation/homebrew.cue"),
+                (["--demo", "gpu-software"], "gpu_software_disc_image", "build/gpu/software/homebrew.cue"),
+                (["--demo", "gpu-mmu"], "gpu_mmu_disc_image", "build/gpu/mmu/homebrew.cue"),
+                (["--demo", "gpu-native"], "gpu_native_disc_image", "build/gpu/native/homebrew.cue"),
+                (["--demo", "gpu-tiled"], "gpu_tiled_off_a_disc_image", "build/gpu/tiled/off/a/homebrew.cue"),
+                (["--demo", "gpu-frame", "--gpu-mmu", "on", "--gpu-view", "b"],
+                 "gpu_frame_on_b_disc_image", "build/gpu/frame/on/b/homebrew.cue"),
+                (["--demo", "gpu-sprite", "--gpu-mmu", "on", "--gpu-view", "linear"],
+                 "gpu_sprite_on_linear_disc_image", "build/gpu/sprite/on/linear/homebrew.cue"),
+            ]
+            for extra, target, disc in cases:
+                arguments = ["play-homebrew.sh", *extra, "--emulator", str(emulator), "--bios", str(bios)]
+                with self.subTest(extra=extra), patch.object(launcher, "ROOT", root), patch.object(sys, "argv", arguments), \
+                     patch.object(launcher.subprocess, "run") as build, patch.object(launcher.shutil, "copy2"), \
+                     patch.object(launcher.os, "chdir"), patch.object(launcher.os, "execve") as execute:
+                    launcher.main()
+                    self.assertEqual(build.call_args.args[0][-1], target)
+                    self.assertEqual(execute.call_args.args[1][-1], str(root / disc))
+                    self.assertNotIn("--load", execute.call_args.args[1])
+
     def test_disc_discovery_prefers_cue_and_excludes_other_binaries(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

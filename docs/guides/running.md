@@ -160,3 +160,28 @@ corresponding `scripts/panic/build-TEST.sh` script for any of the ten cases).
 See [panic support, limitations and acceptance commands](../reference/panic.md).
 Data/prefetch aborts and IRQ/FIQ are not validated; the pinned interpreter also
 has Thumb exception limitations documented there.
+
+## MMU and GPU HAL demos
+
+`./play-homebrew.sh` also builds and boots the opt-in MMU and GPU HAL samples
+and diagnostics:
+
+```sh
+./play-homebrew.sh --demo mmu-identity
+./play-homebrew.sh --demo mmu-undefined
+./play-homebrew.sh --demo mmu-animation
+./play-homebrew.sh --demo gpu-software
+./play-homebrew.sh --demo gpu-mmu
+./play-homebrew.sh --demo gpu-native
+./play-homebrew.sh --demo gpu-tiled --gpu-mmu off --gpu-view a
+./play-homebrew.sh --demo gpu-frame --gpu-mmu on --gpu-view b
+./play-homebrew.sh --demo gpu-sprite --gpu-mmu on --gpu-view a
+```
+
+For `gpu-tiled`, `gpu-frame` and `gpu-sprite`, `--gpu-mmu` selects `off`
+(default) or `on` (identity MMU with `0xA8000000` mapped), and `--gpu-view`
+selects `a` (default), `b`, or `linear` (restored linear scanout after
+shutdown). Each variant uses its own isolated runtime directory under
+`build/play-*`. See [the MMU reference](../reference/mmu.md),
+[the GPU HAL reference](../reference/gpu.md), and
+[the native GPU HAL contract](../reference/gpu-native-hal.md).
