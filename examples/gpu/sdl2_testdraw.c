@@ -65,22 +65,15 @@ int main(int argc, char *argv[])
     video_status = 0x56494431;
     render_status = 0x44524157;
 
+#if GPU_RENDERER_FINAL == 2
     int target_frames = 32;
-#if GPU_RENDERER_FINAL == 0
-    target_frames = 33; /* Lands on presented surface A */
-#elif GPU_RENDERER_FINAL == 1
-    target_frames = 32; /* Lands on presented surface B */
-#endif
-
     for (int frame = 0; frame < target_frames; ++frame) {
         DrawRects(renderer);
     }
 
-#if GPU_RENDERER_FINAL == 2
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();
-#endif
 
     gpu_sdl2_draw_status = 0x600D4452; /* GOOD DRAW */
 
@@ -88,6 +81,19 @@ int main(int argc, char *argv[])
     while (1) {
         /* idle */
     }
+#else
+    gpu_sdl2_draw_status = 0x600D4452; /* GOOD DRAW */
+
+    while (1) {
+        SDL_Event event;
+        while (SDL_PollEvent(&event)) {
+            if (event.type == SDL_QUIT) {
+                return 0;
+            }
+        }
+        DrawRects(renderer);
+    }
+#endif
 
     return 0;
 }

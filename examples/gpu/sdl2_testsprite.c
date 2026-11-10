@@ -104,14 +104,10 @@ int main(int argc, char *argv[])
     video_status = 0x56494431;
     render_status = 0x44524157;
 
+#if GPU_RENDERER_FINAL == 2
     int target_frames = 32;
-#if GPU_RENDERER_FINAL == 0
-    target_frames = 33; /* Lands on presented surface A */
-#elif GPU_RENDERER_FINAL == 1
-    target_frames = 32; /* Lands on presented surface B */
-#endif
 
-    /* Run real SDL2 rendering and animation */
+    /* Run 32 frames of animation then perform clean shutdown for scanout recovery check */
     for (int frame = 0; frame < target_frames && !done; ++frame) {
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
@@ -126,13 +122,11 @@ int main(int argc, char *argv[])
     gpu_heap_used = (uint32_t)vflash_sdl2_get_heap_used();
     gpu_alloc_count = (uint32_t)vflash_sdl2_get_alloc_count();
 
-#if GPU_RENDERER_FINAL == 2
     /* Clean shutdown: restore linear scanout */
     SDL_DestroyTexture(sprite);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();
-#endif
 
     gpu_sdl2_status = 0x600D5D12; /* GOOD SDL2 */
 
@@ -140,6 +134,23 @@ int main(int argc, char *argv[])
     while (1) {
         /* idle */
     }
+#else
+    gpu_sdl2_status = 0x600D5D12; /* GOOD SDL2 */
+
+    /* Run real SDL2 rendering and animation indefinitely */
+    while (!done) {
+        SDL_Event event;
+        while (SDL_PollEvent(&event)) {
+            if (event.type == SDL_QUIT) {
+                done = 1;
+            }
+        }
+        MoveSprites();
+        vflash_sdl2_get_stats(renderer, (uint32_t *)&gpu_lists, (uint32_t *)&gpu_submission_ticks, (uint32_t *)&gpu_completion_ticks);
+        gpu_heap_used = (uint32_t)vflash_sdl2_get_heap_used();
+        gpu_alloc_count = (uint32_t)vflash_sdl2_get_alloc_count();
+    }
+#endif
 
     return 0;
 }
