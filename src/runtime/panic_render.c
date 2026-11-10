@@ -29,11 +29,11 @@ static void hex(uint16_t *pixels, int y, const char *name, uint32_t value)
 void vflash_panic_draw(uint16_t *pixels, const vflash_crash_record_t *record)
 {
     for (uint32_t i = 0; i < 320 * 240; ++i) pixels[i] = 0x6000;
-    text(pixels, 12, 8, ":(", 2);
-    const char *reason = "MANUAL FATAL";
-    if (record->reason == VFLASH_PANIC_ASSERT) reason = "ASSERTION FAILED";
-    if (record->reason == VFLASH_PANIC_UNDEFINED) reason = "UNDEFINED INSTRUCTION";
-    if (record->reason == VFLASH_PANIC_SWI) reason = "SOFTWARE INTERRUPT";
+    text(pixels, 12, 8, "Oops!", 2);
+    const char *reason = "Manual fatal";
+    if (record->reason == VFLASH_PANIC_ASSERT) reason = "Assertion failed";
+    if (record->reason == VFLASH_PANIC_UNDEFINED) reason = "Undefined instruction";
+    if (record->reason == VFLASH_PANIC_SWI) reason = "Software interrupt";
     text(pixels, 12, 32, reason, 2);
     hex(pixels, 60, (record->flags & VFLASH_CRASH_PC_VALID) ? "PC" :
         ((record->flags & VFLASH_CRASH_HARDWARE) ? "PC ?" : "RETURN"), record->fault_pc);
@@ -41,6 +41,6 @@ void vflash_panic_draw(uint16_t *pixels, const vflash_crash_record_t *record)
     hex(pixels, 104, "SPSR", record->spsr);
     hex(pixels, 126, "SP", record->origin_sp);
     hex(pixels, 148, "LR", record->exception_lr);
-    text(pixels, 12, 184, "SYSTEM HALTED", 2);
+    text(pixels, 12, 184, "Guru meditation.", 2);
     text(pixels, 12, 216, record->message, 1);
 }

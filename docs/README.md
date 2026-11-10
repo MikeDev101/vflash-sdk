@@ -25,6 +25,11 @@ remain outside the implemented baseline.
 
 - [Optional MMU bring-up and emulator audit](reference/mmu.md)
 
+- [GPU HAL and native-fill investigation](reference/gpu.md)
+- [Restricted native GPU HAL integration](reference/gpu-native-hal.md)
+- [Direct tiled scanout, D2 and D1 experiments](reference/gpu-tiled.md)
+- [Zevio graphics register inventory](reference/zevio-registers.md)
+
 ## Research and history
 
 - [Firmware identity and loader evidence](research/firmware.md)
