@@ -239,6 +239,42 @@ python3 tools/gpu_transparent_smoke.py --emulator build/emulator/flashem \
   --bios 'dumps/A29L160ATV@TSOP48.BIN' --out build/gpu-transparent-acceptance
 ```
 
+## Native alpha-blending diagnostic
+
+`examples/gpu/alpha.c` and `tools/gpu_alpha_smoke.py` validate FlashEm's modeled
+alpha blending without exposing it in the public HAL (`caps.alpha_blend` remains
+`0`). Using the same `128x32` tiled allocation (`96x32` visible playfield divided
+into Black, Red, Green, and Blue quadrants + `32x32` offscreen atlas), it tests
+both blending paths:
+
+- **`ARGB4444` (`0x8600013F`):** Texel alpha $a = 0$ is transparent; $a = 7$
+  produces 50% white; $a = 3$ produces 25% white; $a = 15$ produces 100% white.
+  Linear interpolation $(src \cdot al + dst \cdot (16 - al)) / 16$ occurs
+  automatically with `blend = 0`.
+- **`BGR555` with Constant Blending (`0x88000002` + `0x8D808080` / `0x8D404040`):**
+  $k = 128$ produces 50% white; $k = 64$ produces 25% white; `blend = 0` produces
+  100% white.
+- **Exact Verified Outputs:** Both paths produce bit-for-bit identical outputs:
+  - 50% White: Black $\rightarrow$ `0x3DEF`, Red $\rightarrow$ `0x3DFF`,
+    Green $\rightarrow$ `0x3FEF`, Blue $\rightarrow$ `0x7DEF`.
+  - 25% White: Black $\rightarrow$ `0x1CE7`, Red $\rightarrow$ `0x1CFF`,
+    Green $\rightarrow$ `0x1FE7`, Blue $\rightarrow$ `0x7CE7`.
+  - 100% White: `0x7FFF`.
+  - 0% Alpha: original background untouched (`0x0000`, `0x001F`, `0x03E0`, `0x7C00`).
+- **Clipping:** Unclipped draws test the `tex_setup` fast path ($\ge 256$ pixels);
+  clipped draws test the `texel` slow path ($< 256$ pixels).
+- **Runs:** All six MMU off/on, A/B/linear presentation variants pass with
+  `608` frame lists + `4` init uploads, exact SDRAM word comparisons, and
+  direct scanout PPM verification.
+
+```sh
+cmake --build build --target gpu_alpha_off_a_disc_image gpu_alpha_off_b_disc_image \
+  gpu_alpha_off_linear_disc_image gpu_alpha_on_a_disc_image \
+  gpu_alpha_on_b_disc_image gpu_alpha_on_linear_disc_image
+python3 tools/gpu_alpha_smoke.py --emulator build/emulator/flashem \
+  --bios 'dumps/A29L160ATV@TSOP48.BIN' --out build/gpu-alpha-acceptance
+```
+
 ## Validation result
 
 All six integrated final-view cases passed with exact raw surface/padding and

@@ -64,6 +64,48 @@ opaquely when `0x88000000` is active. To draw opaque dark-black sprite pixels in
 such as `0x0001` or `0x0421`, and use `0x8000` (or `0x0000`) for transparent
 cutouts.
 
+## Modeled alpha-blending validation (`examples/gpu/alpha.c`)
+
+FlashEm implements two independent blending mechanisms for `0xC8` textured sprites,
+validated in `examples/gpu/alpha.c` and `tools/gpu_alpha_smoke.py`:
+
+1. **`ARGB4444` Texture Format (`0x86` bit 8 set, `0x8600013F`):**
+   - 16-bit texels are decoded as `0xABGR` (low nibble Red `c0`, then Green `c1`,
+     Blue `c2`, high nibble Alpha `a = v >> 12`).
+   - $a = 0$ is completely transparent (`argb4444()` returns 0; pixel is skipped).
+   - $a = 1..15$ maps to weight $al = a + 1$ ($2..16$ out of $16$).
+   - Blending with destination uses integer math:
+     $$\text{dst\_blended} = \left\lfloor \frac{\text{src} \cdot al + \text{dst} \cdot (16 - al)}{16} \right\rfloor$$
+   - Blending occurs automatically without setting the global blend register (`0x88000000`).
+2. **Register-Driven Constant Blending (`0x88000002` + `0x8Dbbggrr`):**
+   - Setting `blend & 3 == 2` enables blending by the per-channel factor
+     $k \in [0, 255]$ configured in `0x8D`.
+   - When applied to standard `BGR555` textures ($al = 16$), the factor $256$
+     cancels out of the total weight ($16 \times 255 \times 16 = 65{,}280$):
+     $$\text{dst\_blended} = \left\lfloor \frac{\text{src} \cdot k + \text{dst} \cdot (255 - k)}{255} \right\rfloor$$
+   - $k = 128$ (`0x8D808080`) provides exact 50% blending.
+   - $k = 64$ (`0x8D404040`) provides exact 25% blending.
+
+### Exact Verified BGR555 Output Values
+
+Both `ARGB4444` and `BGR555` constant blending produce bit-for-bit identical
+integer results across the four primary background test colors:
+
+| Background | Background BGR555 | 50% White ($a=7$ or $k=128$) | 25% White ($a=3$ or $k=64$) | 100% White (Opaque) | 0% Alpha (Transparent) |
+| --- | --- | --- | --- | --- | --- |
+| **Black** | `0x0000` | `0x3DEF` ($r=15, g=15, b=15$) | `0x1CE7` ($r=7, g=7, b=7$) | `0x7FFF` | `0x0000` (untouched) |
+| **Red** | `0x001F` | `0x3DFF` ($r=31, g=15, b=15$) | `0x1CFF` ($r=31, g=7, b=7$) | `0x7FFF` | `0x001F` (untouched) |
+| **Green** | `0x03E0` | `0x3FEF` ($r=15, g=31, b=15$) | `0x1FE7` ($r=7, g=31, b=7$) | `0x7FFF` | `0x03E0` (untouched) |
+| **Blue** | `0x7C00` | `0x7DEF` ($r=15, g=15, b=31$) | `0x7CE7` ($r=7, g=7, b=31$) | `0x7FFF` | `0x7C00` (untouched) |
+
+### Emulator-Specific State (`abuf`) Limitation
+
+FlashEm includes a destination-alpha buffer `abuf` (`static uint8_t abuf[1024 * 1024];`
+in `ge.c:66`) populated by `ARGB4444` draws and consumed when a subsequent `BGR555`
+sprite is drawn with `blend & 0x43 == 0x42`. This buffer is allocated entirely in
+host process memory with no guest address mapping or known Zevio hardware register.
+It is deliberately excluded from the public SDK HAL.
+
 ## Architectural evidence versus implementation observations
 
 A first-party [ACCESS/Koto/HI platform announcement](https://www.access-company.com/en/news_event/archives/2006/010206/)

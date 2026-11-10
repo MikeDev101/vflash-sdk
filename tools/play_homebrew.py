@@ -23,6 +23,7 @@ DEMOS = (
     "gpu-frame",
     "gpu-sprite",
     "gpu-transparent",
+    "gpu-alpha",
 )
 PANIC_TESTS = (
     "manual", "undefined", "stack", "nested", "swi", "thumb",
@@ -139,9 +140,9 @@ def main():
     parser.add_argument("--panic-test", choices=PANIC_TESTS,
                         help="separate panic diagnostic (requires --demo panic; default: undefined)")
     parser.add_argument("--gpu-mmu", choices=GPU_MMU_MODES,
-                        help="MMU mode for gpu-tiled/gpu-frame/gpu-sprite/gpu-transparent (default: off)")
+                        help="MMU mode for gpu-tiled/gpu-frame/gpu-sprite/gpu-transparent/gpu-alpha (default: off)")
     parser.add_argument("--gpu-view", choices=GPU_VIEWS,
-                        help="final view for gpu-tiled/gpu-frame/gpu-sprite/gpu-transparent (default: a)")
+                        help="final view for gpu-tiled/gpu-frame/gpu-sprite/gpu-transparent/gpu-alpha (default: a)")
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--bios-menu", action="store_true", help="boot firmware with no disc; skip the homebrew build")
     modes.add_argument("--game", action="store_true", help="load a dumped game from dumps/; skip the homebrew build")
@@ -156,8 +157,8 @@ def main():
         parser.error("--demo is only available in play-homebrew.sh")
     if args.panic_test is not None and args.demo != "panic":
         parser.error("--panic-test requires --demo panic")
-    if (args.gpu_mmu is not None or args.gpu_view is not None) and args.demo not in ("gpu-tiled", "gpu-frame", "gpu-sprite", "gpu-transparent"):
-        parser.error("--gpu-mmu and --gpu-view require --demo gpu-tiled, gpu-frame, gpu-sprite, or gpu-transparent")
+    if (args.gpu_mmu is not None or args.gpu_view is not None) and args.demo not in ("gpu-tiled", "gpu-frame", "gpu-sprite", "gpu-transparent", "gpu-alpha"):
+        parser.error("--gpu-mmu and --gpu-view require --demo gpu-tiled, gpu-frame, gpu-sprite, gpu-transparent, or gpu-alpha")
     try:
         if args.list:
             for disc in find_dumped_discs(ROOT / "dumps"):
