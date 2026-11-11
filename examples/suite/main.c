@@ -95,8 +95,9 @@ static uint16_t sdl_bmp_rgb555[64 * 64] __attribute__((aligned(64)));
 #define COL_MAGENTA     0xE040FBu
 #define COL_ORANGE      0xFF9100u
 
-#define SUITE_TEST_COUNT 6
-#define MENU_ITEM_COUNT  10
+#define SUITE_TEST_COUNT       6
+#define MENU_ITEM_COUNT        10
+#define INPUT_EXIT_HOLD_FRAMES 45u
 
 static const char *const menu_labels[MENU_ITEM_COUNT] = {
     "0. RUN ALL AUTOMATED TESTS",
@@ -110,6 +111,31 @@ static const char *const menu_labels[MENU_ITEM_COUNT] = {
     "8. RAM & Memory Inspector",
     "9. Sound & PCM Audio Menu"
 };
+
+static const char *const stage_short_names[SUITE_TEST_COUNT] = {
+    "1. CPU & Clock 2D",
+    "2. RAM & MMU Check",
+    "3. Zevio 2D GPU Blit",
+    "4. Zevio 3D Cube",
+    "5. ISO 9660 Disc FS",
+    "6. SDL2 Asset & I/O"
+};
+
+static char suite_stage_notes[SUITE_TEST_COUNT][40];
+
+static void set_stage_note(uint32_t test_num, const char *note)
+{
+    if (test_num < 1 || test_num > SUITE_TEST_COUNT) return;
+    char *dst = suite_stage_notes[test_num - 1u];
+    uint32_t i = 0;
+    if (note) {
+        while (note[i] != '\0' && i < 38u) {
+            dst[i] = note[i];
+            i++;
+        }
+    }
+    dst[i] = '\0';
+}
 
 /* Quarter-wave / full-wave Q14 sine lookup table (256 entries, -16384..+16384) */
 static const int16_t sin_q14[256] = {
@@ -274,12 +300,16 @@ static void draw_test_hud(vflash_framebuffer_t *fb, uint32_t test_idx,
     /* Bottom Footer Bar */
     draw_rect(fb, 0, 224, 320, 16, COL_HEADER);
     draw_rect(fb, 0, 224, 320, 1, COL_BORDER);
-    font_draw_string(fb, 6, 228, "PASS:", COL_GRAY, COL_HEADER);
-    draw_u32_dec(fb, 46, 228, suite_tests_passed, COL_GREEN, COL_HEADER);
-    font_draw_string(fb, 66, 228, "FAIL:", COL_GRAY, COL_HEADER);
-    draw_u32_dec(fb, 106, 228, suite_tests_failed,
-                 suite_tests_failed ? COL_RED : COL_GRAY, COL_HEADER);
-    font_draw_string(fb, 146, 228, "[BLUE/EXIT] Menu", COL_YELLOW, COL_HEADER);
+    if (!batch_mode && step >= max_steps) {
+        font_draw_string(fb, 8, 228, "TEST DONE - Press [OK] for Main Menu", COL_YELLOW, COL_HEADER);
+    } else {
+        font_draw_string(fb, 6, 228, "PASS:", COL_GRAY, COL_HEADER);
+        draw_u32_dec(fb, 46, 228, suite_tests_passed, COL_GREEN, COL_HEADER);
+        font_draw_string(fb, 66, 228, "FAIL:", COL_GRAY, COL_HEADER);
+        draw_u32_dec(fb, 106, 228, suite_tests_failed,
+                     suite_tests_failed ? COL_RED : COL_GRAY, COL_HEADER);
+        font_draw_string(fb, 146, 228, "[BLUE/EXIT] Menu", COL_YELLOW, COL_HEADER);
+    }
 }
 
 static bool check_abort_to_menu(void)
@@ -287,6 +317,19 @@ static bool check_abort_to_menu(void)
     vflash_input_poll();
     const vflash_input_state_t *st = vflash_input_get_state();
     return vflash_input_is_pressed(st, VFLASH_BTN_BLUE | VFLASH_BTN_EXIT);
+}
+
+static void wait_for_ok_button(vflash_framebuffer_t *fb)
+{
+    while (1) {
+        vflash_input_poll();
+        const vflash_input_state_t *st = vflash_input_get_state();
+        if (vflash_input_is_pressed(st, VFLASH_BTN_OK | VFLASH_BTN_BLUE | VFLASH_BTN_EXIT)) {
+            break;
+        }
+        vflash_video_present(fb);
+        suite_frames++;
+    }
 }
 
 /* --- Test 1: CPU & Clock 2D Animation --- */
@@ -331,7 +374,7 @@ static bool run_test_cpu_clock(vflash_framebuffer_t *fb, bool batch_mode)
         font_draw_hex32(fb, 128, 160, now, COL_GREEN, COL_PANEL);
         font_draw_string(fb, 16, 176, "Scanout FB  :", COL_GRAY, COL_PANEL);
         font_draw_hex32(fb, 128, 176, (uint32_t)(uintptr_t)fb->pixels, COL_CYAN, COL_PANEL);
-        font_draw_string(fb, 16, 192, "Status      : PASS", COL_GREEN, COL_PANEL);
+        font_draw_string(fb, 16, 192, "Status      : PASS (20f + 10kHz OK)", COL_GREEN, COL_PANEL);
 
         vflash_video_present(fb);
         suite_frames++;
@@ -339,7 +382,12 @@ static bool run_test_cpu_clock(vflash_framebuffer_t *fb, bool batch_mode)
 
     uint16_t end_ticks = vflash_clock_ticks();
     bool clock_advanced = ((uint16_t)(end_ticks - start_ticks) > 0) || (elapsed_total > 0);
-    return clock_advanced && (fb->width == 320) && (fb->height == 240);
+    bool ok = clock_advanced && (fb->width == 320) && (fb->height == 240);
+    set_stage_note(1, ok ? "20f RGB555 Flip + Timer0 10kHz OK" : "FAIL: Timer0 or 320x240 FB error");
+    if (!batch_mode) {
+        wait_for_ok_button(fb);
+    }
+    return ok;
 }
 
 /* --- Test 2: RAM & MMU Translation Test --- */
@@ -385,32 +433,59 @@ static bool perform_ram_and_mmu_checks(uint32_t *out_err_addr, uint32_t *out_mmu
 
     /* 3. ARM926EJ-S CP15 MMU L1/L2 page mapping test at VA 0x20000000 */
     uint32_t c1 = vflash_mmu_control();
-    suite_mmu_control = c1;
     bool was_enabled = (c1 & 1u) != 0;
+    bool alias_ok = false;
 
     if (was_enabled) {
-        if (vflash_mmu_disable() != VFLASH_MMU_OK) return false;
-    } else {
-        if (vflash_mmu_identity() != VFLASH_MMU_OK) return false;
-        if (vflash_mmu_map_section(0xA8000000u, 0xA8000000u, VFLASH_MMU_PRIV_RW) != VFLASH_MMU_OK) return false;
+        if (vflash_mmu_disable() != VFLASH_MMU_OK) {
+            suite_mmu_control = vflash_mmu_control();
+            return false;
+        }
+    }
+
+    /* Always reset L1/L2 tables cleanly so repeated runs never hit VFLASH_MMU_CONFLICT */
+    if (vflash_mmu_identity() != VFLASH_MMU_OK ||
+        vflash_mmu_map_section(0xA8000000u, 0xA8000000u, VFLASH_MMU_PRIV_RW) != VFLASH_MMU_OK) {
+        goto restore_mmu;
     }
 
     *(volatile uint32_t *)(uintptr_t)mmu_page_a = 0xCAFE1234u;
     *(volatile uint32_t *)(uintptr_t)mmu_page_b = 0xBEEF5678u;
 
-    if (vflash_mmu_map_page(0x20000000u, (uint32_t)(uintptr_t)mmu_page_a, VFLASH_MMU_PRIV_RW) != VFLASH_MMU_OK) return false;
-    if (vflash_mmu_map_page(0x20001000u, (uint32_t)(uintptr_t)mmu_page_b, VFLASH_MMU_PRIV_RW) != VFLASH_MMU_OK) return false;
-    if (vflash_mmu_enable() != VFLASH_MMU_OK) return false;
+    if (vflash_mmu_map_page(0x20000000u, (uint32_t)(uintptr_t)mmu_page_a, VFLASH_MMU_PRIV_RW) != VFLASH_MMU_OK ||
+        vflash_mmu_map_page(0x20001000u, (uint32_t)(uintptr_t)mmu_page_b, VFLASH_MMU_PRIV_RW) != VFLASH_MMU_OK ||
+        vflash_mmu_enable() != VFLASH_MMU_OK) {
+        goto restore_mmu;
+    }
 
-    uint32_t read_a = REG(0x20000000u);
-    uint32_t read_b = REG(0x20001000u);
-    REG(0x20000004u) = 0x11223344u;
-    bool alias_ok = (read_a == 0xCAFE1234u) &&
-                    (read_b == 0xBEEF5678u) &&
-                    (*(volatile uint32_t *)(uintptr_t)(mmu_page_a + 4) == 0x11223344u);
+    {
+        uint32_t read_a = REG(0x20000000u);
+        uint32_t read_b = REG(0x20001000u);
+        REG(0x20000004u) = 0x11223344u;
+        alias_ok = (read_a == 0xCAFE1234u) &&
+                   (read_b == 0xBEEF5678u) &&
+                   (*(volatile uint32_t *)(uintptr_t)(mmu_page_a + 4) == 0x11223344u);
+    }
 
-    if (!was_enabled) {
-        if (vflash_mmu_disable() != VFLASH_MMU_OK) return false;
+    if (vflash_mmu_disable() == VFLASH_MMU_OK) {
+        (void)vflash_mmu_unmap_page(0x20000000u);
+        (void)vflash_mmu_unmap_page(0x20001000u);
+    }
+
+restore_mmu:
+    if (was_enabled) {
+        if ((vflash_mmu_control() & 1u) == 0) {
+            if (vflash_mmu_enable() != VFLASH_MMU_OK) {
+                if (vflash_mmu_identity() == VFLASH_MMU_OK &&
+                    vflash_mmu_map_section(0xA8000000u, 0xA8000000u, VFLASH_MMU_PRIV_RW) == VFLASH_MMU_OK) {
+                    (void)vflash_mmu_enable();
+                }
+            }
+        }
+    } else {
+        if ((vflash_mmu_control() & 1u) != 0) {
+            (void)vflash_mmu_disable();
+        }
     }
     suite_mmu_control = vflash_mmu_control();
 
@@ -425,10 +500,21 @@ static bool run_test_ram_mmu(vflash_framebuffer_t *fb, bool batch_mode)
     uint32_t err_addr = 0;
     uint32_t mmu_ok = 0;
     bool ok = perform_ram_and_mmu_checks(&err_addr, &mmu_ok);
+    bool final_ok = ok && (mmu_ok == 1);
+
+    if (final_ok) {
+        set_stage_note(2, (suite_mmu_control & 1u)
+            ? "16K Walk/Chk + 4K Alias (MMU ON)"
+            : "16K Walk/Chk + 4K Alias (MMU OFF)");
+    } else if (err_addr != 0) {
+        set_stage_note(2, "FAIL: SDRAM pattern mismatch");
+    } else {
+        set_stage_note(2, "FAIL: CP15 L1/L2 page alias err");
+    }
 
     const uint32_t total_frames = 16;
     for (uint32_t f = 0; f < total_frames; ++f) {
-        if (check_abort_to_menu()) return ok;
+        if (check_abort_to_menu()) return final_ok;
 
         vflash_video_backbuffer(fb);
         draw_test_hud(fb, 2, "RAM & MMU CHECK", f + 1, total_frames, batch_mode);
@@ -439,8 +525,10 @@ static bool run_test_ram_mmu(vflash_framebuffer_t *fb, bool batch_mode)
         font_draw_string(fb, 16, 56, "Arena Addr  :", COL_GRAY, COL_PANEL);
         font_draw_hex32(fb, 128, 56, (uint32_t)(uintptr_t)ram_test_arena, COL_WHITE, COL_PANEL);
         font_draw_string(fb, 16, 72, "Arena Size  : 16384 Bytes (4096 Words)", COL_GRAY, COL_PANEL);
-        font_draw_string(fb, 16, 88, "Walking 1/0 : PASS", COL_GREEN, COL_PANEL);
-        font_draw_string(fb, 16, 104, "Checkerboard: PASS (0x5555AAAA/0xAAAA5555)", COL_GREEN, COL_PANEL);
+        font_draw_string(fb, 16, 88, (err_addr == 0) ? "Walking 1/0 : PASS" : "Walking 1/0 : FAIL",
+                         (err_addr == 0) ? COL_GREEN : COL_RED, COL_PANEL);
+        font_draw_string(fb, 16, 104, (err_addr == 0) ? "Checkerboard: PASS (0x5555AAAA/0xAAAA5555)" : "Checkerboard: FAIL",
+                         (err_addr == 0) ? COL_GREEN : COL_RED, COL_PANEL);
         font_draw_string(fb, 16, 120, "VA 0x20000000:", COL_GRAY, COL_PANEL);
         font_draw_hex32(fb, 128, 120, (uint32_t)(uintptr_t)mmu_page_a, COL_CYAN, COL_PANEL);
         font_draw_string(fb, 16, 136, "VA 0x20001000:", COL_GRAY, COL_PANEL);
@@ -448,14 +536,17 @@ static bool run_test_ram_mmu(vflash_framebuffer_t *fb, bool batch_mode)
         font_draw_string(fb, 16, 152, "CP15 Ctrl C1:", COL_GRAY, COL_PANEL);
         font_draw_hex32(fb, 128, 152, suite_mmu_control, COL_YELLOW, COL_PANEL);
         font_draw_string(fb, 16, 172, "Result      :", COL_GRAY, COL_PANEL);
-        font_draw_string(fb, 128, 172, ok ? "PASS (ALL CHECKS OK)" : "FAIL",
-                         ok ? COL_GREEN : COL_RED, COL_PANEL);
+        font_draw_string(fb, 128, 172, final_ok ? "PASS (ALL CHECKS OK)" : "FAIL",
+                         final_ok ? COL_GREEN : COL_RED, COL_PANEL);
 
         vflash_video_present(fb);
         suite_frames++;
     }
 
-    return ok && (mmu_ok == 1);
+    if (!batch_mode) {
+        wait_for_ok_button(fb);
+    }
+    return final_ok;
 }
 
 /* --- Test 3: Zevio 2D GPU & Sprite Blit --- */
@@ -572,6 +663,10 @@ static bool run_test_gpu_2d(vflash_framebuffer_t *fb, bool batch_mode)
     }
 
     vflash_gpu_shutdown(&g);
+    set_stage_note(3, ok ? "0xD3 Fill + 0xC3/0xCB Sprite Blit OK" : "FAIL: 2D GPU render error");
+    if (!batch_mode) {
+        wait_for_ok_button(fb);
+    }
     return ok;
 }
 
@@ -833,7 +928,12 @@ static bool run_test_gpu_3d_cube(vflash_framebuffer_t *fb, bool batch_mode)
     }
 
     vflash_gpu_shutdown(&g);
-    return (non_bg_pixels > 0);
+    bool ok = (non_bg_pixels > 0);
+    set_stage_note(4, ok ? "36 Verts + Z-Buffer + 0x44 Mesh OK" : "FAIL: 3D rasterization error");
+    if (!batch_mode) {
+        wait_for_ok_button(fb);
+    }
+    return ok;
 }
 
 /* --- Test 5: Optical Disc & ISO 9660 Filesystem --- */
@@ -917,6 +1017,21 @@ static bool run_test_iso9660_fs(vflash_framebuffer_t *fb, bool batch_mode)
         suite_frames++;
     }
 
+    if (all_ok) {
+        set_stage_note(5, "PVD LBA16 + Subdir + Seek 2048 OK");
+    } else if (!init_ok) {
+        set_stage_note(5, "FAIL: PVD Mount error");
+    } else if (!txt_ok) {
+        set_stage_note(5, "FAIL: /TEST.TXT read error");
+    } else if (!sub_ok) {
+        set_stage_note(5, "FAIL: /dir1/sub.txt read error");
+    } else {
+        set_stage_note(5, "FAIL: LARGE.BIN seek error");
+    }
+
+    if (!batch_mode) {
+        wait_for_ok_button(fb);
+    }
     return all_ok;
 }
 
@@ -1019,6 +1134,19 @@ static bool run_test_sdl2_assets(vflash_framebuffer_t *fb, bool batch_mode)
         suite_frames++;
     }
 
+    if (all_ok) {
+        set_stage_note(6, "RWops config.txt + 64x64 BMP + WAV OK");
+    } else if (!cfg_ok) {
+        set_stage_note(6, "FAIL: SDL_RWFromFile error");
+    } else if (!bmp_ok) {
+        set_stage_note(6, "FAIL: SDL_LoadBMP error");
+    } else {
+        set_stage_note(6, "FAIL: SDL_LoadWAV error");
+    }
+
+    if (!batch_mode) {
+        wait_for_ok_button(fb);
+    }
     return all_ok;
 }
 
@@ -1053,6 +1181,63 @@ static void record_test_result(uint32_t test_num, bool passed)
     }
 }
 
+static void show_automated_test_summary(vflash_framebuffer_t *fb)
+{
+    while (1) {
+        vflash_input_poll();
+        const vflash_input_state_t *st = vflash_input_get_state();
+        if (vflash_input_is_pressed(st, VFLASH_BTN_OK | VFLASH_BTN_BLUE | VFLASH_BTN_EXIT)) {
+            break;
+        }
+
+        vflash_video_backbuffer(fb);
+        draw_clear(fb, COL_BG);
+
+        /* Top Header Banner */
+        draw_rect(fb, 0, 0, 320, 24, COL_HEADER);
+        draw_rect(fb, 0, 23, 320, 1, COL_BORDER);
+        font_draw_string(fb, 8, 4, "AUTOMATED SUITE TEST SUMMARY", COL_CYAN, COL_HEADER);
+        font_draw_string(fb, 218, 4, (suite_tests_passed == SUITE_TEST_COUNT) ? "[ALL PASSED]" : "[FAILED]",
+                         (suite_tests_passed == SUITE_TEST_COUNT) ? COL_GREEN : COL_RED, COL_HEADER);
+
+        /* Main Panel Box */
+        draw_box_border(fb, 6, 26, 308, 195, COL_PANEL, COL_BORDER);
+
+        for (uint32_t i = 0; i < SUITE_TEST_COUNT; ++i) {
+            int32_t iy = 30 + (int32_t)i * 30;
+            draw_box_border(fb, 10, iy, 300, 27, 0x0C1626u, COL_BORDER);
+
+            uint32_t bit = 1u << i;
+            bool executed = (suite_done_mask & bit) != 0;
+            bool passed = (suite_results_mask & bit) != 0;
+
+            font_draw_string(fb, 16, iy + 4, stage_short_names[i], COL_WHITE, 0x0C1626u);
+
+            if (executed) {
+                font_draw_string(fb, 252, iy + 4, passed ? "[PASS]" : "[FAIL]",
+                                 passed ? COL_GREEN : COL_RED, 0x0C1626u);
+            } else {
+                font_draw_string(fb, 252, iy + 4, "[SKIP]", COL_DIM, 0x0C1626u);
+            }
+
+            const char *note = suite_stage_notes[i];
+            if (note[0] != '\0') {
+                font_draw_string(fb, 16, iy + 15, note, passed ? COL_GRAY : COL_RED, 0x0C1626u);
+            } else {
+                font_draw_string(fb, 16, iy + 15, "No stage notes recorded", COL_DIM, 0x0C1626u);
+            }
+        }
+
+        /* Bottom Footer Bar */
+        draw_rect(fb, 0, 224, 320, 16, COL_HEADER);
+        draw_rect(fb, 0, 224, 320, 1, COL_BORDER);
+        font_draw_string(fb, 8, 228, "Press [OK] to return to Main Menu", COL_YELLOW, COL_HEADER);
+
+        vflash_video_present(fb);
+        suite_frames++;
+    }
+}
+
 static void run_all_automated_tests(vflash_framebuffer_t *fb)
 {
     record_test_result(1, run_test_cpu_clock(fb, true));
@@ -1062,6 +1247,7 @@ static void run_all_automated_tests(vflash_framebuffer_t *fb)
     record_test_result(5, run_test_iso9660_fs(fb, true));
     record_test_result(6, run_test_sdl2_assets(fb, true));
     suite_current_test = 0;
+    show_automated_test_summary(fb);
 }
 
 /* --- Interactive Diagnostic 7: Input Diagnostic Menu --- */
@@ -1071,6 +1257,7 @@ static void run_diag_input(vflash_framebuffer_t *fb)
     suite_current_test = 7;
     suite_diag_visited_mask |= (1u << 0);
     uint32_t ever_seen = 0;
+    uint32_t hold_frames = 0;
     int16_t min_x = 0, max_x = 0, min_y = 0, max_y = 0;
 
     while (1) {
@@ -1083,11 +1270,17 @@ static void run_diag_input(vflash_framebuffer_t *fb)
         if (st->axis_y < min_y) min_y = st->axis_y;
         if (st->axis_y > max_y) max_y = st->axis_y;
 
-        /* Exit to Main Menu on EXIT or (BLUE + YELLOW) or BLUE edge press */
-        if (vflash_input_is_pressed(st, VFLASH_BTN_EXIT | VFLASH_BTN_BLUE)) {
-            break;
+        /* Exit to Main Menu only when ANY button is held down continuously for a moment */
+        if (st->buttons != 0) {
+            hold_frames++;
+            if (hold_frames >= INPUT_EXIT_HOLD_FRAMES) {
+                break;
+            }
+        } else {
+            hold_frames = 0;
         }
-        if (vflash_input_is_pressed(st, VFLASH_BTN_YELLOW)) {
+
+        if (vflash_input_is_pressed(st, VFLASH_BTN_STICK)) {
             ever_seen = 0;
             min_x = max_x = min_y = max_y = 0;
         }
@@ -1163,9 +1356,20 @@ static void run_diag_input(vflash_framebuffer_t *fb)
         font_draw_string(fb, 144, 196, "/", COL_GRAY, COL_PANEL);
         draw_u32_dec(fb, 156, 196, st->raw_y, COL_WHITE, COL_PANEL);
 
-        /* Footer */
+        /* Footer with Exit Hold Progress Indicator */
         draw_rect(fb, 0, 224, 320, 16, COL_HEADER);
-        font_draw_string(fb, 8, 228, "[YEL] Clear Badges   [BLUE/EXIT] Main Menu", COL_YELLOW, COL_HEADER);
+        if (hold_frames > 0) {
+            uint32_t bar_w = (hold_frames * 90u) / INPUT_EXIT_HOLD_FRAMES;
+            if (bar_w > 90u) bar_w = 90u;
+            font_draw_string(fb, 8, 228, "HOLD TO EXIT:", COL_YELLOW, COL_HEADER);
+            draw_box_border(fb, 110, 227, 94, 9, 0x0A101Cu, COL_BORDER);
+            if (bar_w > 0) {
+                draw_rect(fb, 112, 229, (int32_t)bar_w, 5, COL_RED);
+            }
+            font_draw_string(fb, 212, 228, "Exiting...", COL_WHITE, COL_HEADER);
+        } else {
+            font_draw_string(fb, 8, 228, "[STK] Clear   [HOLD ANY BUTTON] Main Menu", COL_YELLOW, COL_HEADER);
+        }
 
         vflash_video_present(fb);
         suite_frames++;

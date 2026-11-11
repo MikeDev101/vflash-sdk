@@ -96,12 +96,13 @@ def run_suite(suite, emulator, bios, out):
             elf = ROOT / f"build/vflash_suite_{mmu}.elf"
             disc = ROOT / f"build/suite/{mmu}/homebrew.cue"
             seq = (
-                "0x100@440-455;"
-                "0x1@770-780;0x100@795-805;0x80@835-845;"
-                "0x1@860-870;0x100@885-895;0x80@915-925;"
-                "0x1@940-950;0x100@965-975"
+                "0x100@440-450;"
+                "0x100@720-735;"
+                "0x1@760-775;0x100@795-805;0x80@825-865;"
+                "0x1@890-905;0x100@925-935;0x80@955-985;"
+                "0x1@1010-1025;0x100@1045-1055"
             )
-            extra = ["--input", seq, "--frames", "1000"]
+            extra = ["--input", seq, "--frames", "1090"]
         else:
             elf = ROOT / (f"build/vflash_fs_{mmu}.elf" if kind == "native" else f"build/vflash_sdl2_asset_{mmu}.elf")
             disc = ROOT / (f"build/fs/native/{mmu}/homebrew.cue" if kind == "native" else f"build/fs/sdl2/{mmu}/homebrew.cue")

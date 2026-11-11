@@ -54,6 +54,7 @@ int vflash_fs_init(void)
 {
     s_cached_lba = 0xFFFFFFFFu;
     s_root_cached = false;
+    s_fs_ready = false;
     for (int i = 0; i < VFLASH_FS_MAX_OPEN_FILES; ++i) {
         s_files[i].used = false;
     }

@@ -84,13 +84,26 @@ static void cd_seek_tracks(int tracks)
     cd_dsp_cmd(8, 0x24u);
 }
 
+static void cd_home_head(void)
+{
+    /*
+     * Deterministically reset the optical pickup to the 22.5 mm physical inner
+     * stop regardless of how far outward it has tracked during idle menu time,
+     * then step forward 1580 tracks (25.028 mm = LBA 8) right before LBA 16.
+     */
+    cd_seek_tracks(-16383);
+    cd_seek_tracks(-16383);
+    cd_seek_tracks(1580);
+    s_current_lba = 8;
+}
+
 static void cd_position_head(int32_t target_lba)
 {
     if (target_lba < s_current_lba) {
         uint32_t diff = (uint32_t)(s_current_lba - target_lba);
         /* 1 track is ~9.1 sectors. Seek back enough tracks to land 4..12 sectors before target */
         uint32_t tr = udiv32(diff + 4u, 9u, 0) + 1u;
-        if (tr > 200) tr = 200;
+        if (tr > 0x3FFFu) tr = 0x3FFFu;
         cd_seek_tracks(-(int)tr);
         s_current_lba -= (int32_t)(tr * 9u);
     } else if (target_lba > s_current_lba + 18) {
@@ -98,6 +111,7 @@ static void cd_position_head(int32_t target_lba)
         /* Conservative ~10 sectors/track to never overshoot target_lba */
         uint32_t tr = udiv32(diff - 6u, 10u, 0);
         if (tr > 0) {
+            if (tr > 0x3FFFu) tr = 0x3FFFu;
             cd_seek_tracks((int)tr);
             s_current_lba += (int32_t)(tr * 9u);
         }
@@ -111,6 +125,9 @@ int vflash_cd_init(void)
         s_current_lba = msf_to_signed_lba(cur_msf);
     } else {
         s_current_lba = 31;
+    }
+    if (s_current_lba < 0 || s_current_lba > 1000) {
+        cd_home_head();
     }
     CD_REG(0x60) &= ~0x00F00000u;
     CD_REG(0x64) = 0xFFFFFFFFu;
@@ -135,6 +152,9 @@ int vflash_cd_read_sectors(uint32_t lba, uint32_t count, void *dst)
     if (cur_msf != 0) {
         s_current_lba = msf_to_signed_lba(cur_msf);
     }
+    if (s_current_lba < 0 || s_current_lba > (int32_t)lba + 1000) {
+        cd_home_head();
+    }
 
     cd_position_head((int32_t)lba);
 
@@ -157,6 +177,7 @@ int vflash_cd_read_sectors(uint32_t lba, uint32_t count, void *dst)
     CD_REG(0x40) = (CD_REG(0x40) & ~0x18u) | 0x18u | 0x04u;
 
     uint32_t delivered = 0;
+    uint32_t idle_polls = 0;
     uint32_t timeout = 50000000u;
     while (timeout--) {
         CD_REG(0x74) = 2; /* clear slot overrun check */
@@ -169,6 +190,7 @@ int vflash_cd_read_sectors(uint32_t lba, uint32_t count, void *dst)
         }
         if (st & 0x1000u) {
             CD_REG(0x64) = 0x1000u;
+            idle_polls = 0;
             delivered++;
             if (delivered >= count) {
                 CD_REG(0x40) &= ~0x04u;
@@ -180,6 +202,7 @@ int vflash_cd_read_sectors(uint32_t lba, uint32_t count, void *dst)
         /* Closed-loop subchannel Q check before first sector arrives */
         if (delivered == 0 && (st & 0x20u)) {
             CD_REG(0x64) = 0x20u;
+            idle_polls = 0;
             uint32_t q_msf = CD_REG(0x5C);
             if (q_msf != 0) {
                 s_current_lba = msf_to_signed_lba(q_msf);
@@ -194,6 +217,18 @@ int vflash_cd_read_sectors(uint32_t lba, uint32_t count, void *dst)
                     CD_REG(0x40) = (CD_REG(0x40) & ~0x18u) | 0x18u | 0x04u;
                 }
             }
+        } else if (delivered == 0 && ++idle_polls >= 200000u) {
+            /* Head drifted into lead-out where SubQ stops firing; home and retry */
+            idle_polls = 0;
+            CD_REG(0x40) &= ~0x04u;
+            cd_home_head();
+            cd_position_head((int32_t)lba);
+            CD_REG(0x1C) = msf;
+            CD_REG(0x20) = count;
+            CD_REG(0x24) = addr;
+            CD_REG(0x64) = 0xFFFFFFFFu;
+            CD_REG(0x74) = 2;
+            CD_REG(0x40) = (CD_REG(0x40) & ~0x18u) | 0x18u | 0x04u;
         }
     }
 
