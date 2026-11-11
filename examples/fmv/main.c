@@ -32,67 +32,83 @@ static vflash_video_player_t player;
 #define VIDEO_DST_X 48
 #define VIDEO_DST_Y 28
 
-static void render_ui(const vflash_video_stats_t *stats, bool loop)
+#define BG_COLOR 0x0A1020
+
+static void draw_static_ui(uint32_t vid_w, uint32_t vid_h)
 {
-    /* Clear borders / telemetry area with dark navy */
-    draw_rect(&fb, 0, 0, 320, VIDEO_DST_Y, 0x0A1020);
-    draw_rect(&fb, 0, VIDEO_DST_Y, VIDEO_DST_X, 114, 0x0A1020);
-    draw_rect(&fb, VIDEO_DST_X + stats->width, VIDEO_DST_Y, 320 - (VIDEO_DST_X + stats->width), 114, 0x0A1020);
-    draw_rect(&fb, 0, VIDEO_DST_Y + stats->height + 2, 320, 240 - (VIDEO_DST_Y + stats->height + 2), 0x0A1020);
+    /* Clear full screen with dark navy */
+    draw_clear(&fb, BG_COLOR);
 
     /* Header banner */
     draw_text(&fb, 16, 8, "V.FLASH NATIVE FMV PLAYER (MJP)", 0x50C0FF, 1);
 
     /* Video frame border */
-    draw_rect(&fb, VIDEO_DST_X - 1, VIDEO_DST_Y - 1, stats->width + 2, 1, 0x3060A0);
-    draw_rect(&fb, VIDEO_DST_X - 1, VIDEO_DST_Y + stats->height, stats->width + 2, 1, 0x3060A0);
-    draw_rect(&fb, VIDEO_DST_X - 1, VIDEO_DST_Y, 1, stats->height, 0x3060A0);
-    draw_rect(&fb, VIDEO_DST_X + stats->width, VIDEO_DST_Y, 1, stats->height, 0x3060A0);
+    draw_rect(&fb, VIDEO_DST_X - 1, VIDEO_DST_Y - 1, vid_w + 2, 1, 0x3060A0);
+    draw_rect(&fb, VIDEO_DST_X - 1, VIDEO_DST_Y + vid_h, vid_w + 2, 1, 0x3060A0);
+    draw_rect(&fb, VIDEO_DST_X - 1, VIDEO_DST_Y, 1, vid_h, 0x3060A0);
+    draw_rect(&fb, VIDEO_DST_X + vid_w, VIDEO_DST_Y, 1, vid_h, 0x3060A0);
 
-    /* Telemetry Panel */
-    int ty = 148;
+    /* Black placeholder inside video box */
+    draw_rect(&fb, VIDEO_DST_X, VIDEO_DST_Y, vid_w, vid_h, 0x000000);
+
+    /* Telemetry Labels (drawn once, never flicker) */
+    draw_text(&fb, 16, 148, "STATUS:", 0xAAAAAA, 1);
+    draw_text(&fb, 16, 164, "RES:", 0xAAAAAA, 1);
+    draw_text(&fb, 52, 164, "224x112 @ 15 FPS", 0xE0E0E0, 1);
+    draw_text(&fb, 16, 180, "AUDIO: PCM 16-BIT 22.05 kHz", 0x80D0FF, 1);
+    draw_text(&fb, 16, 198, "OK:Play/Pause  RED:Stop  YEL:Restart  BLU:Loop", 0x90A0B0, 1);
+}
+
+static void draw_status(vflash_video_state_t state)
+{
+    /* Clear only the status value region */
+    draw_rect(&fb, 72, 148, 80, 10, BG_COLOR);
+
     const char *state_str = "STOPPED";
     uint32_t state_color = 0xFF4040;
-    if (stats->state == VFLASH_VIDEO_PLAYING) {
+    if (state == VFLASH_VIDEO_PLAYING) {
         state_str = "PLAYING";
         state_color = 0x40FF60;
-    } else if (stats->state == VFLASH_VIDEO_PAUSED) {
+    } else if (state == VFLASH_VIDEO_PAUSED) {
         state_str = "PAUSED";
         state_color = 0xFFD020;
-    } else if (stats->state == VFLASH_VIDEO_FINISHED) {
+    } else if (state == VFLASH_VIDEO_FINISHED) {
         state_str = "FINISHED";
         state_color = 0x40C0FF;
     }
+    draw_text(&fb, 72, 148, state_str, state_color, 1);
+}
 
-    draw_text(&fb, 16, ty, "STATUS:", 0xAAAAAA, 1);
-    draw_text(&fb, 72, ty, state_str, state_color, 1);
+static void draw_frame_counter(uint32_t cur, uint32_t tot)
+{
+    /* Clear only the frame counter region */
+    draw_rect(&fb, 170, 148, 130, 10, BG_COLOR);
 
-    char buf[64];
-    /* Format frame count */
-    int f_cur = stats->current_frame;
-    int f_tot = stats->frame_count;
+    char buf[20];
     buf[0] = 'F'; buf[1] = 'R'; buf[2] = 'A'; buf[3] = 'M'; buf[4] = 'E'; buf[5] = ':'; buf[6] = ' ';
-    buf[7] = '0' + (f_cur / 100) % 10;
-    buf[8] = '0' + (f_cur / 10) % 10;
-    buf[9] = '0' + (f_cur % 10);
+    buf[7] = '0' + (cur / 100) % 10;
+    buf[8] = '0' + (cur / 10) % 10;
+    buf[9] = '0' + (cur % 10);
     buf[10] = ' '; buf[11] = '/'; buf[12] = ' ';
-    buf[13] = '0' + (f_tot / 100) % 10;
-    buf[14] = '0' + (f_tot / 10) % 10;
-    buf[15] = '0' + (f_tot % 10);
+    buf[13] = '0' + (tot / 100) % 10;
+    buf[14] = '0' + (tot / 10) % 10;
+    buf[15] = '0' + (tot % 10);
     buf[16] = '\0';
-    draw_text(&fb, 170, ty, buf, 0xFFFFFF, 1);
+    draw_text(&fb, 170, 148, buf, 0xFFFFFF, 1);
+}
 
-    ty += 16;
-    draw_text(&fb, 16, ty, "RES:", 0xAAAAAA, 1);
-    draw_text(&fb, 52, ty, "224x112 @ 15 FPS", 0xE0E0E0, 1);
+static void draw_loop_status(bool loop)
+{
+    /* Clear only the loop value region */
+    draw_rect(&fb, 170, 164, 90, 10, BG_COLOR);
+    draw_text(&fb, 170, 164, loop ? "LOOP: ON" : "LOOP: OFF", loop ? 0x60FF80 : 0x888888, 1);
+}
 
-    draw_text(&fb, 170, ty, loop ? "LOOP: ON" : "LOOP: OFF", loop ? 0x60FF80 : 0x888888, 1);
-
-    ty += 16;
-    draw_text(&fb, 16, ty, "AUDIO: PCM 16-BIT 22.05 kHz", 0x80D0FF, 1);
-
-    ty += 18;
-    draw_text(&fb, 16, ty, "OK:Play/Pause  RED:Stop  YEL:Restart  BLU:Loop", 0x90A0B0, 1);
+static void wait_vblank(void)
+{
+    volatile uint32_t *ve_status = (volatile uint32_t *)0xB8000000;
+    *ve_status = 2;
+    while (!(*ve_status & 2)) {}
 }
 
 void vflash_main(void)
@@ -136,10 +152,19 @@ void vflash_main(void)
     vflash_video_set_loop(&player, loop_mode);
     vflash_video_play(&player);
 
-    uint32_t iteration = 0;
+    /* Draw static UI once */
+    draw_static_ui(player.width, player.height);
+    draw_status(player.state);
+    draw_frame_counter(player.current_frame, player.frame_count);
+    draw_loop_status(loop_mode);
+    vflash_video_present(&fb);
+
+    vflash_video_state_t prev_state = player.state;
+    uint32_t prev_frame = 0xFFFFFFFF;
+    bool prev_loop = loop_mode;
 
     while (1) {
-        iteration++;
+        wait_vblank();
         vflash_input_poll();
         const vflash_input_state_t *st = vflash_input_get_state();
 
@@ -154,6 +179,7 @@ void vflash_main(void)
         }
         if (st->pressed & VFLASH_BTN_RED) {
             vflash_video_stop(&player);
+            draw_rect(&fb, VIDEO_DST_X, VIDEO_DST_Y, player.width, player.height, 0x000000);
             fmv_stop_tested = 1;
         }
         if (st->pressed & VFLASH_BTN_YELLOW) {
@@ -180,9 +206,22 @@ void vflash_main(void)
             fmv_all_passed = 1;
         }
 
-        /* Render UI telemetry */
-        render_ui(&stats, loop_mode);
+        /* Update dynamic UI elements only when their values change */
+        if (stats.state != prev_state) {
+            draw_status(stats.state);
+            prev_state = stats.state;
+        }
+
+        if (stats.current_frame != prev_frame) {
+            draw_frame_counter(stats.current_frame, stats.frame_count);
+            prev_frame = stats.current_frame;
+        }
+
+        if (loop_mode != prev_loop) {
+            draw_loop_status(loop_mode);
+            prev_loop = loop_mode;
+        }
+
         vflash_video_present(&fb);
     }
 }
-
