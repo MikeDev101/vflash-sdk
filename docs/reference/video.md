@@ -116,7 +116,7 @@ seven-byte bitmap per character.
 ```sh
 cmake --build build --target all disc_image
 ctest --test-dir build --output-on-failure
-python3 tools/render_preview.py build/render-reference
+python3 tools/host_renderer.py build/render-reference
 python3 tools/emulator_smoke.py \
   --emulator /path/to/flashem \
   --bios '/path/to/A29L160ATV@TSOP48.BIN' \

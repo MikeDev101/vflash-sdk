@@ -9,16 +9,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 MEMCARD_SIZE = 8 * 1024 * 1024
-DEMOS = (
-    "hello",
-    "animation",
-    "panic",
-    "mmu-identity",
-    "mmu-undefined",
-    "mmu-animation",
-    "gpu-software",
-    "gpu-mmu",
-    "gpu-native",
+GPU_VIEW_DEMOS = (
     "gpu-tiled",
     "gpu-frame",
     "gpu-sprite",
@@ -29,10 +20,32 @@ DEMOS = (
     "gpu-lifecycle",
     "gpu-sdl",
     "gpu-sdl2",
+    "gpu-sdl2-draw",
     "gpu-triangle",
     "gpu-triangle-depth",
     "gpu-triangle-tex",
     "gpu-cube",
+)
+MMU_ONLY_DEMOS = (
+    "input",
+    "sdl2-input",
+    "audio",
+    "sdl2-audio",
+    "fs",
+    "sdl2-asset",
+)
+DEMOS = (
+    "hello",
+    "animation",
+    "panic",
+    "mmu-identity",
+    "mmu-undefined",
+    "mmu-animation",
+    "gpu-software",
+    "gpu-mmu",
+    "gpu-native",
+    *GPU_VIEW_DEMOS,
+    *MMU_ONLY_DEMOS,
 )
 PANIC_TESTS = (
     "manual", "undefined", "stack", "nested", "swi", "thumb",
@@ -64,6 +77,18 @@ def resolve_demo(demo, panic_test, gpu_mmu, gpu_view):
     if demo == "gpu-native":
         return "gpu_native_disc_image", "build/gpu/native/homebrew.cue", "build/play-gpu-native"
     mmu = gpu_mmu or "off"
+    if demo == "input":
+        return f"input_{mmu}_disc_image", f"build/input/{mmu}/homebrew.cue", f"build/play-input-{mmu}"
+    if demo == "sdl2-input":
+        return f"sdl2_input_{mmu}_disc_image", f"build/input/sdl2/{mmu}/homebrew.cue", f"build/play-sdl2-input-{mmu}"
+    if demo == "audio":
+        return f"audio_{mmu}_disc_image", f"build/audio/{mmu}/homebrew.cue", f"build/play-audio-{mmu}"
+    if demo == "sdl2-audio":
+        return f"sdl2_audio_{mmu}_disc_image", f"build/audio/sdl2/{mmu}/homebrew.cue", f"build/play-sdl2-audio-{mmu}"
+    if demo == "fs":
+        return f"fs_{mmu}_disc_image", f"build/fs/native/{mmu}/homebrew.cue", f"build/play-fs-{mmu}"
+    if demo == "sdl2-asset":
+        return f"sdl2_asset_{mmu}_disc_image", f"build/fs/sdl2/{mmu}/homebrew.cue", f"build/play-sdl2-asset-{mmu}"
     view = gpu_view or "a"
     kind = demo.split("-", 1)[1].replace("-", "_")
     return (
@@ -149,9 +174,9 @@ def main():
     parser.add_argument("--panic-test", choices=PANIC_TESTS,
                         help="separate panic diagnostic (requires --demo panic; default: undefined)")
     parser.add_argument("--gpu-mmu", choices=GPU_MMU_MODES,
-                        help="MMU mode for gpu-tiled/gpu-frame/gpu-sprite/gpu-transparent/gpu-alpha (default: off)")
+                        help="MMU mode for configurable GPU/input/audio/fs demos (default: off)")
     parser.add_argument("--gpu-view", choices=GPU_VIEWS,
-                        help="final view for gpu-tiled/gpu-frame/gpu-sprite/gpu-transparent/gpu-alpha (default: a)")
+                        help="final view for multi-view GPU demos (default: a)")
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--bios-menu", action="store_true", help="boot firmware with no disc; skip the homebrew build")
     modes.add_argument("--game", action="store_true", help="load a dumped game from dumps/; skip the homebrew build")
@@ -166,8 +191,10 @@ def main():
         parser.error("--demo is only available in play-homebrew.sh")
     if args.panic_test is not None and args.demo != "panic":
         parser.error("--panic-test requires --demo panic")
-    if (args.gpu_mmu is not None or args.gpu_view is not None) and args.demo not in ("gpu-tiled", "gpu-frame", "gpu-sprite", "gpu-transparent", "gpu-alpha", "gpu-modes", "gpu-renderer", "gpu-lifecycle", "gpu-sdl", "gpu-sdl2"):
-        parser.error("--gpu-mmu and --gpu-view require --demo gpu-tiled, gpu-frame, gpu-sprite, gpu-transparent, gpu-alpha, gpu-modes, gpu-renderer, gpu-lifecycle, gpu-sdl, or gpu-sdl2")
+    if args.gpu_mmu is not None and args.demo not in (*GPU_VIEW_DEMOS, *MMU_ONLY_DEMOS):
+        parser.error(f"--gpu-mmu requires one of: {', '.join((*GPU_VIEW_DEMOS, *MMU_ONLY_DEMOS))}")
+    if args.gpu_view is not None and args.demo not in GPU_VIEW_DEMOS:
+        parser.error(f"--gpu-view requires one of: {', '.join(GPU_VIEW_DEMOS)}")
     try:
         if args.list:
             for disc in find_dumped_discs(ROOT / "dumps"):
@@ -193,7 +220,7 @@ def main():
         if not args.bios_menu and not args.game:
             if not (ROOT / "build/CMakeCache.txt").exists():
                 subprocess.run(["cmake", "-S", str(ROOT), "-B", str(ROOT / "build"),
-                                "-DCMAKE_TOOLCHAIN_FILE=cmake/arm-none-eabi.cmake"], check=True)
+                                "-DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-vflash.cmake"], check=True)
             subprocess.run(["cmake", "--build", str(ROOT / "build"), "--target", target], check=True)
         runtime = ROOT / ("build/bios" if args.bios_menu else ("build/game" if args.game else runtime_rel))
         runtime.mkdir(parents=True, exist_ok=True)

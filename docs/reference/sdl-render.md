@@ -78,7 +78,7 @@ To prevent hidden bugs, memory corruptions, or display tearing, the adapter enfo
 
 ## 4. Verification Matrix
 
-The adapter is verified by `tools/gpu_sdl_smoke.py` across all 6 MMU and scanout configurations:
+The adapter is verified by `tools/gpu_smoke.py --test sdl` across all 6 MMU and scanout configurations:
 - MMU: `off` and `on`.
 - View: `a` (surface A at 0,0), `b` (surface B at 224,208), and `linear` (clean linear restore).
 - Verification checks: 32 frames of animation, 292 GPU command lists per variant, exact bit-level memory on playfield and atlas, zero frontbuffer modifications, and exact pixel output in `frame.ppm`.

@@ -67,7 +67,7 @@ cutouts.
 ## Modeled alpha-blending validation (`examples/gpu/alpha.c`)
 
 FlashEm implements two independent blending mechanisms for `0xC8` textured sprites,
-validated in `examples/gpu/alpha.c` and `tools/gpu_alpha_smoke.py`:
+validated in `examples/gpu/alpha.c` and `tools/gpu_smoke.py --test alpha`:
 
 1. **`ARGB4444` Texture Format (`0x86` bit 8 set, `0x8600013F`):**
    - 16-bit texels are decoded as `0xABGR` (low nibble Red `c0`, then Green `c1`,

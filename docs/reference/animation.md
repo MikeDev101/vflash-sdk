@@ -63,8 +63,8 @@ The original static targets retain their existing library-free configuration.
 
 These are measurements against **FlashEm's device clock and instruction/timing
 model**, rather than host wall-clock FPS or a physical-console benchmark.
-The scene establishes a repeatable baseline; ScratchEverywhere's rendering and
-runtime costs have not been measured or inferred from it.
+The scene establishes a repeatable baseline for software rendering and frame
+pacing.
 
 ## Verification and observed result
 

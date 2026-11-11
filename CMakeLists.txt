@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.20)
 project(vflash_sdk VERSION 0.1.0 LANGUAGES C ASM)
 
-if(NOT CMAKE_CROSSCOMPILING OR NOT CMAKE_C_COMPILER_ID STREQUAL "GNU")
-    message(FATAL_ERROR "Configure with -DCMAKE_TOOLCHAIN_FILE=cmake/arm-none-eabi.cmake (GNU Arm required)")
+if(NOT CMAKE_CROSSCOMPILING OR NOT CMAKE_SYSTEM_NAME STREQUAL "VFlash" OR NOT CMAKE_C_COMPILER_ID STREQUAL "GNU")
+    message(FATAL_ERROR "Configure with -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-vflash.cmake (GNU Arm required)")
 endif()
 find_package(Python3 3.9 REQUIRED COMPONENTS Interpreter)
 set(tools_dir "${CMAKE_CURRENT_SOURCE_DIR}/tools")

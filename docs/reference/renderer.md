@@ -132,8 +132,8 @@ vflash_gpu_result_t vflash_renderer_present(vflash_renderer_t *r);
 ## 5. Verification Matrix
 
 The renderer abstraction and its lifecycle management are validated across two dedicated smoke suites:
-1. **`tools/gpu_renderer_smoke.py`:** Validates basic double-buffering, multi-mode sprite rendering (opaque, keyed, translucent), scissor clipping, and linear scanout recovery across 6 variants.
-2. **`tools/gpu_lifecycle_smoke.py`:** Validates multi-scene lifecycle transitions:
+1. **`tools/gpu_smoke.py --test renderer`:** Validates basic double-buffering, multi-mode sprite rendering (opaque, keyed, translucent), scissor clipping, and linear scanout recovery across 6 variants.
+2. **`tools/gpu_smoke.py --test lifecycle`:** Validates multi-scene lifecycle transitions:
    - Scene 1 asset uploads and 16 frames of animation.
    - Atlas exhaustion rejection (`VFLASH_GPU_OUT_OF_MEMORY`) without memory pointer corruption.
    - Frontbuffer upload protection rejection (`VFLASH_GPU_BUSY`) during active display scanout.

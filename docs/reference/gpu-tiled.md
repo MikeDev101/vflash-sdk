@@ -83,7 +83,7 @@ dispatch have since been added in the [native HAL](gpu-native-hal.md).
 cmake --build build --target gpu_tiled_off_a_disc_image gpu_tiled_off_b_disc_image \
   gpu_tiled_off_linear_disc_image gpu_tiled_on_a_disc_image \
   gpu_tiled_on_b_disc_image gpu_tiled_on_linear_disc_image
-python3 tools/gpu_tiled_smoke.py --emulator build/emulator/flashem \
+python3 tools/gpu_smoke.py --test tiled --emulator build/emulator/flashem \
   --bios 'dumps/A29L160ATV@TSOP48.BIN' --out build/gpu-tiled-acceptance
 ```
 

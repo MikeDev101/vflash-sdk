@@ -84,10 +84,10 @@ these distinctions and use the proper LR offset per exception and state.
 
 ```sh
 cmake --build build --target mmu_identity_disc_image mmu_undefined_disc_image
-python3 tools/mmu_smoke.py --emulator build/emulator/flashem \
-  --bios 'dumps/A29L160ATV@TSOP48.BIN' --test identity --out build/mmu-identity
-python3 tools/mmu_smoke.py --emulator build/emulator/flashem \
-  --bios 'dumps/A29L160ATV@TSOP48.BIN' --test undefined --out build/mmu-undefined
+python3 tools/emulator_smoke.py --suite mmu-identity --emulator build/emulator/flashem \
+  --bios 'dumps/A29L160ATV@TSOP48.BIN' --out build/mmu-identity
+python3 tools/emulator_smoke.py --suite mmu-undefined --emulator build/emulator/flashem \
+  --bios 'dumps/A29L160ATV@TSOP48.BIN' --out build/mmu-undefined
 ```
 
 The identity case reads/writes SDRAM through a nonidentity 4 KiB alias at

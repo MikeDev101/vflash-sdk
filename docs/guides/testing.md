@@ -43,7 +43,7 @@ under `build/video-smoke`. See [video implementation and evidence](../reference/
 To preview the same C rendering on the host independently:
 
 ```sh
-python3 tools/render_preview.py build/render-reference
+python3 tools/host_renderer.py build/render-reference
 ```
 
 Open `build/render-reference/frame.ppm`; `frame.bgr555` and `reference.json`
@@ -134,7 +134,7 @@ python3 tools/emulator_smoke.py \
 python3 tools/panic_smoke.py \
   --emulator build/emulator/flashem --bios 'dumps/A29L160ATV@TSOP48.BIN' \
   --test undefined --out build/panic-acceptance/undefined
-python3 tools/font_preview.py build/font-preview.ppm
+python3 tools/host_renderer.py --font-atlas build/font-preview.ppm
 ```
 
 The font atlas is a host preview. Firmware acceptance images come from actual

@@ -19,12 +19,11 @@ function(vflash_add_program target script)
 
     add_custom_command(TARGET ${target} POST_BUILD
         COMMAND "${CMAKE_OBJCOPY}" -O binary "$<TARGET_FILE:${target}>" "${CMAKE_CURRENT_BINARY_DIR}/${target}.bin"
-        COMMAND "${Python3_EXECUTABLE}" "${tools_dir}/capture_tool.py" "${CMAKE_CURRENT_BINARY_DIR}/${target}.dis"
-            "${CMAKE_OBJDUMP}" -d -S "$<TARGET_FILE:${target}>"
-        COMMAND "${Python3_EXECUTABLE}" "${tools_dir}/capture_tool.py" "${CMAKE_CURRENT_BINARY_DIR}/${target}.readelf.txt"
-            "${CMAKE_READELF}" -h -l -S -A -s "$<TARGET_FILE:${target}>"
         COMMAND "${Python3_EXECUTABLE}" "${tools_dir}/verify_elf.py" "$<TARGET_FILE:${target}>"
             --readelf "${CMAKE_READELF}"
+            --objdump "${CMAKE_OBJDUMP}"
+            --dis-out "${CMAKE_CURRENT_BINARY_DIR}/${target}.dis"
+            --readelf-out "${CMAKE_CURRENT_BINARY_DIR}/${target}.readelf.txt"
         BYPRODUCTS "${CMAKE_CURRENT_BINARY_DIR}/${target}.bin" "${CMAKE_CURRENT_BINARY_DIR}/${target}.dis"
             "${CMAKE_CURRENT_BINARY_DIR}/${target}.readelf.txt" "${CMAKE_CURRENT_BINARY_DIR}/${target}.map"
         VERBATIM)

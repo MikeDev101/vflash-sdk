@@ -41,7 +41,7 @@ The usual `--scale`, `--bios`, `--emulator` and optional `--memcard` work here.
 
 The initial FlashEm measurement was 60 presented FPS with a 13.4 ms full redraw.
 These are device-clock measurements under the emulator's timing model; they do
-not measure host wall-clock speed or establish ScratchEverywhere performance.
+not measure host wall-clock speed.
 See [animation timing, memory ownership and verification](../reference/animation.md).
 
 ```sh
@@ -161,10 +161,9 @@ See [panic support, limitations and acceptance commands](../reference/panic.md).
 Data/prefetch aborts and IRQ/FIQ are not validated; the pinned interpreter also
 has Thumb exception limitations documented there.
 
-## MMU and GPU HAL demos
+## MMU, GPU, Input, Audio, Filesystem, and SDL2 demos
 
-`./play-homebrew.sh` also builds and boots the opt-in MMU and GPU HAL samples
-and diagnostics:
+`./play-homebrew.sh` builds and boots all SDK samples and diagnostics:
 
 ```sh
 ./play-homebrew.sh --demo mmu-identity
@@ -176,12 +175,34 @@ and diagnostics:
 ./play-homebrew.sh --demo gpu-tiled --gpu-mmu off --gpu-view a
 ./play-homebrew.sh --demo gpu-frame --gpu-mmu on --gpu-view b
 ./play-homebrew.sh --demo gpu-sprite --gpu-mmu on --gpu-view a
+./play-homebrew.sh --demo gpu-transparent --gpu-mmu on --gpu-view a
+./play-homebrew.sh --demo gpu-alpha --gpu-mmu on --gpu-view a
+./play-homebrew.sh --demo gpu-modes --gpu-mmu on --gpu-view a
+./play-homebrew.sh --demo gpu-renderer --gpu-mmu on --gpu-view a
+./play-homebrew.sh --demo gpu-lifecycle --gpu-mmu on --gpu-view a
+./play-homebrew.sh --demo gpu-sdl --gpu-mmu on --gpu-view a
+./play-homebrew.sh --demo gpu-sdl2 --gpu-mmu on --gpu-view a
+./play-homebrew.sh --demo gpu-sdl2-draw --gpu-mmu on --gpu-view a
+./play-homebrew.sh --demo gpu-triangle --gpu-mmu on --gpu-view a
+./play-homebrew.sh --demo gpu-triangle-depth --gpu-mmu on --gpu-view a
+./play-homebrew.sh --demo gpu-triangle-tex --gpu-mmu on --gpu-view a
+./play-homebrew.sh --demo gpu-cube --gpu-mmu on --gpu-view a
+./play-homebrew.sh --demo input --gpu-mmu on
+./play-homebrew.sh --demo sdl2-input --gpu-mmu on
+./play-homebrew.sh --demo audio --gpu-mmu on
+./play-homebrew.sh --demo sdl2-audio --gpu-mmu on
+./play-homebrew.sh --demo fs --gpu-mmu on
+./play-homebrew.sh --demo sdl2-asset --gpu-mmu on
 ```
 
-For `gpu-tiled`, `gpu-frame` and `gpu-sprite`, `--gpu-mmu` selects `off`
-(default) or `on` (identity MMU with `0xA8000000` mapped), and `--gpu-view`
-selects `a` (default), `b`, or `linear` (restored linear scanout after
-shutdown). Each variant uses its own isolated runtime directory under
-`build/play-*`. See [the MMU reference](../reference/mmu.md),
+For multi-view GPU demos (`gpu-tiled`, `gpu-frame`, `gpu-sprite`,
+`gpu-transparent`, `gpu-alpha`, `gpu-modes`, `gpu-renderer`, `gpu-lifecycle`,
+`gpu-sdl`, `gpu-sdl2`, `gpu-sdl2-draw`, `gpu-triangle`, `gpu-triangle-depth`,
+`gpu-triangle-tex`, `gpu-cube`), `--gpu-mmu` selects `off` (default) or `on`
+(identity MMU with `0xA8000000` mapped), and `--gpu-view` selects `a`
+(default), `b`, or `linear` (restored linear scanout after shutdown). For
+`input`, `sdl2-input`, `audio`, `sdl2-audio`, `fs`, and `sdl2-asset`,
+`--gpu-mmu` selects `off` (default) or `on`. Each variant uses its own isolated
+runtime directory under `build/play-*`. See [the MMU reference](../reference/mmu.md),
 [the GPU HAL reference](../reference/gpu.md), and
 [the native GPU HAL contract](../reference/gpu-native-hal.md).

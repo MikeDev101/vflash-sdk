@@ -1,12 +1,14 @@
 import ctypes
 from pathlib import Path
 import random
+import struct
 import sys
 import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
-from host_renderer import Framebuffer, build_library
+from host_renderer import AnimationState, Framebuffer, build_library
+from panic_smoke import RECORD, WORDS, load_renderer, reference_pixels
 
 
 class DrawTests(unittest.TestCase):
@@ -109,6 +111,118 @@ class DrawTests(unittest.TestCase):
         self.assertEqual(pixels[0], 0x1062)
         self.lib.demo_render(ctypes.byref(fb))
         self.assertEqual(bytes(pixels), first)
+
+
+class FontTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.temp = tempfile.TemporaryDirectory(prefix='vflash-font-')
+        cls.library = build_library(Path(cls.temp.name) / 'font.so')
+        cls.library.font_glyph.argtypes = [ctypes.c_ubyte]
+        cls.library.font_glyph.restype = ctypes.POINTER(ctypes.c_uint8)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.temp.cleanup()
+
+    def glyph(self, code):
+        return tuple(self.library.font_glyph(code)[:7])
+
+    def test_all_printable_ascii_has_a_distinct_glyph(self):
+        glyphs = [self.glyph(code) for code in range(0x20, 0x7F)]
+        self.assertEqual(glyphs[0], (0,) * 7)
+        self.assertEqual(len(set(glyphs)), 95)
+        for code, glyph in zip(range(0x21, 0x7F), glyphs[1:]):
+            with self.subTest(character=chr(code)):
+                self.assertTrue(any(glyph))
+                self.assertTrue(all(0 <= row < 32 for row in glyph))
+
+    def test_controls_and_non_ascii_bytes_use_question_mark(self):
+        fallback = self.glyph(ord('?'))
+        for code in (*range(0x20), *range(0x7F, 0x100)):
+            with self.subTest(byte=code):
+                self.assertEqual(self.glyph(code), fallback)
+
+    def test_lowercase_letters_are_not_uppercase_aliases(self):
+        for code in range(ord('a'), ord('z') + 1):
+            with self.subTest(letter=chr(code)):
+                self.assertNotEqual(self.glyph(code), self.glyph(code - 32))
+
+
+class AnimationTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.temp = tempfile.TemporaryDirectory()
+        cls.lib = build_library(Path(cls.temp.name) / "animation.so")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.temp.cleanup()
+
+    def test_motion_stays_in_bounds_and_bounces(self):
+        state = AnimationState()
+        self.lib.animation_init(ctypes.byref(state))
+        x_directions, y_directions = set(), set()
+        for _ in range(10000):
+            self.lib.animation_step(ctypes.byref(state))
+            self.assertTrue(16 <= state.x <= 280)
+            self.assertTrue(84 <= state.y <= 180)
+            x_directions.add(state.dx)
+            y_directions.add(state.dy)
+        self.assertEqual(x_directions, {-2, 2})
+        self.assertEqual(y_directions, {-3, 3})
+
+    def test_frames_change_without_writing_past_buffer(self):
+        count = 320 * 240
+        storage = (ctypes.c_uint16 * (count + 32))(*([0xA55A] * (count + 32)))
+        pointer = ctypes.cast(ctypes.byref(storage, 32), ctypes.POINTER(ctypes.c_uint16))
+        fb = Framebuffer(pointer, 320, 240, 320, count, 1)
+        state = AnimationState()
+        self.lib.animation_init(ctypes.byref(state))
+        self.lib.animation_render(ctypes.byref(fb), ctypes.byref(state), 60, 3500)
+        first = bytes(storage)
+        self.lib.animation_step(ctypes.byref(state))
+        self.lib.animation_render(ctypes.byref(fb), ctypes.byref(state), 60, 3500)
+        self.assertNotEqual(bytes(storage), first)
+        self.assertEqual(list(storage[:16]), [0xA55A] * 16)
+        self.assertEqual(list(storage[-16:]), [0xA55A] * 16)
+        self.assertEqual(pointer[(state.y + 4) * 320 + state.x + 4], self.lib.draw_color(0xFFCC40))
+
+
+class PanicRendererTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.temp = tempfile.TemporaryDirectory()
+        cls.library = load_renderer(Path(cls.temp.name) / 'panic.so')
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.temp.cleanup()
+
+    def test_arm_record_abi_matches_assembly_and_dump_reader(self):
+        self.assertEqual(RECORD.size, 180)
+        self.assertEqual(WORDS.index('secondary_reason') * 4, 104)
+        self.assertEqual(WORDS.index('secondary_pc') * 4, 108)
+
+    def test_long_message_and_hex_values_stay_within_framebuffer(self):
+        for reason in (1, 2, 3, 4):
+            words = [0xFFFFFFFF] * 29
+            words[2] = reason
+            saved = RECORD.pack(*words, b'W' * 63 + b'\0')
+            pixels = reference_pixels(saved, self.library)
+            self.assertEqual(len(pixels), 153600)
+            self.assertEqual(set(struct.unpack('<76800H', pixels)), {0x6000, 0x7FFF})
+
+    def test_render_is_deterministic_and_reflects_pc(self):
+        words = [0] * 29
+        words[2] = 3
+        first = reference_pixels(RECORD.pack(*words, b''), self.library)
+        self.assertEqual(first, reference_pixels(RECORD.pack(*words, b''), self.library))
+        words[4] = 0x10C01234
+        second = reference_pixels(RECORD.pack(*words, b''), self.library)
+        self.assertNotEqual(first, second)
+        self.assertEqual(first[:60*320*2], second[:60*320*2])
+        self.assertEqual(first[74*320*2:], second[74*320*2:])
 
 
 if __name__ == "__main__":

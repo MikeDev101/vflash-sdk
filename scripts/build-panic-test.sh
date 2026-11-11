@@ -9,7 +9,7 @@ case "$mode" in
 esac
 if [ ! -f "$sdk_dir/build/CMakeCache.txt" ]; then
     cmake -S "$sdk_dir" -B "$sdk_dir/build" \
-        -DCMAKE_TOOLCHAIN_FILE="$sdk_dir/cmake/arm-none-eabi.cmake"
+        -DCMAKE_TOOLCHAIN_FILE="$sdk_dir/cmake/toolchain-vflash.cmake"
 fi
 cmake --build "$sdk_dir/build" --target "panic_${mode}_disc_image" "$@"
 printf '\nBuilt %s panic diagnostic.\nDisc: %s\nELF:  %s\n' "$mode" \

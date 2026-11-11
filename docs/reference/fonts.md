@@ -29,7 +29,7 @@ before glyph lookup and retains its existing screen layout.
 ## Preview every glyph
 
 ```sh
-python3 tools/font_preview.py build/font-preview.ppm
+python3 tools/host_renderer.py --font-atlas build/font-preview.ppm
 ```
 
 The atlas uses the SDK's actual C font and drawing code compiled on the host.

@@ -190,7 +190,7 @@ conversion occurs.
 cmake --build build --target gpu_frame_off_a_disc_image gpu_frame_off_b_disc_image \
   gpu_frame_off_linear_disc_image gpu_frame_on_a_disc_image \
   gpu_frame_on_b_disc_image gpu_frame_on_linear_disc_image
-python3 tools/gpu_frame_smoke.py --emulator build/emulator/flashem \
+python3 tools/gpu_smoke.py --test frame --emulator build/emulator/flashem \
   --bios 'dumps/A29L160ATV@TSOP48.BIN' --out build/gpu-frame-acceptance
 ```
 
@@ -221,13 +221,13 @@ uploads + `32 * 6` frame lists).
 cmake --build build --target gpu_sprite_off_a_disc_image gpu_sprite_off_b_disc_image \
   gpu_sprite_off_linear_disc_image gpu_sprite_on_a_disc_image \
   gpu_sprite_on_b_disc_image gpu_sprite_on_linear_disc_image
-python3 tools/gpu_sprite_smoke.py --emulator build/emulator/flashem \
+python3 tools/gpu_smoke.py --test sprite --emulator build/emulator/flashem \
   --bios 'dumps/A29L160ATV@TSOP48.BIN' --out build/gpu-sprite-acceptance
 ```
 
 ## Native transparent-sprite diagnostic
 
-`examples/gpu/transparent.c` and `tools/gpu_transparent_smoke.py` verify native
+`examples/gpu/transparent.c` and `tools/gpu_smoke.py --test transparent` verify native
 `0xC8` color-keyed sprite rendering (`vflash_gpu_draw_sprite`) over the same
 shared `128x32` tiled backing layout (`96x32` playfield + `32x32` offscreen
 atlas):
@@ -253,13 +253,13 @@ atlas):
 cmake --build build --target gpu_transparent_off_a_disc_image gpu_transparent_off_b_disc_image \
   gpu_transparent_off_linear_disc_image gpu_transparent_on_a_disc_image \
   gpu_transparent_on_b_disc_image gpu_transparent_on_linear_disc_image
-python3 tools/gpu_transparent_smoke.py --emulator build/emulator/flashem \
+python3 tools/gpu_smoke.py --test transparent --emulator build/emulator/flashem \
   --bios 'dumps/A29L160ATV@TSOP48.BIN' --out build/gpu-transparent-acceptance
 ```
 
 ## Native alpha-blending diagnostic
 
-`examples/gpu/alpha.c` and `tools/gpu_alpha_smoke.py` validate FlashEm's modeled
+`examples/gpu/alpha.c` and `tools/gpu_smoke.py --test alpha` validate FlashEm's modeled
 alpha blending without exposing it in the public HAL (`caps.alpha_blend` remains
 `0`). Using the same `128x32` tiled allocation (`96x32` visible playfield divided
 into Black, Red, Green, and Blue quadrants + `32x32` offscreen atlas), it tests
@@ -289,7 +289,7 @@ both blending paths:
 cmake --build build --target gpu_alpha_off_a_disc_image gpu_alpha_off_b_disc_image \
   gpu_alpha_off_linear_disc_image gpu_alpha_on_a_disc_image \
   gpu_alpha_on_b_disc_image gpu_alpha_on_linear_disc_image
-python3 tools/gpu_alpha_smoke.py --emulator build/emulator/flashem \
+python3 tools/gpu_smoke.py --test alpha --emulator build/emulator/flashem \
   --bios 'dumps/A29L160ATV@TSOP48.BIN' --out build/gpu-alpha-acceptance
 ```
 

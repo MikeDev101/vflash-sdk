@@ -1,4 +1,5 @@
-set(CMAKE_SYSTEM_NAME Generic)
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}")
+set(CMAKE_SYSTEM_NAME VFlash)
 set(CMAKE_SYSTEM_PROCESSOR arm)
 set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
 set(VFLASH_CROSS_PREFIX "arm-none-eabi-" CACHE STRING "GNU Arm executable prefix, optionally including its path")

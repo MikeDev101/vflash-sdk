@@ -79,8 +79,7 @@ covered by the [reference index](../README.md).
    before generalizing the linker/packer beyond this takeover model.
 3. Add an observable UART or display test only after its initialization and
    ownership requirements are verified.
-4. Measure usable RAM and runtime services before revisiting ScratchEverywhere.
-   No ScratchEverywhere code or existing platform target was modified.
+4. Measure usable RAM and runtime services before porting higher-level engines.
 
 Commercial chunks, relocation/compression, warm µMORE application integration,
 and hardware compatibility remain unresolved. The minimum emulator boot

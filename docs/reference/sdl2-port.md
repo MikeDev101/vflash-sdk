@@ -146,7 +146,7 @@ The native port was validated using two upstream SDL2 test programs ported to fr
    - Renders 5 distinct solid colored test rectangles (Red, Green, Blue, Yellow, White) over a dark blue background.
    - Validates `SDL_SetRenderDrawColor`, `SDL_RenderClear`, and `SDL_RenderFillRect`.
 
-### Acceptance Test Matrix (`tools/gpu_sdl2_smoke.py`)
+### Acceptance Test Matrix (`tools/gpu_smoke.py --test sdl2`)
 
 All 6 execution variants pass all checks:
 

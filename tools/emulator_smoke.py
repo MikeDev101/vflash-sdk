@@ -5,6 +5,7 @@ creation API. --load bypasses it. Supply both --bios and --disc instead to
 test a real firmware-driven disc boot, with no direct program loading.
 """
 import argparse
+import concurrent.futures
 import hashlib
 import json
 import os
@@ -17,16 +18,137 @@ import sys
 import tempfile
 from elf_image import RAM_START, RAM_END, read_bounded, read_elf
 
+ROOT = Path(__file__).resolve().parents[1]
 EXPECTED = {"boot_marker": 0x56464C53, "startup_status": 0x600D600D, "data_cookie": 0x13579BDF}
+SUITES = ("mmu-identity", "mmu-undefined", "input", "audio", "fs")
+INPUT_SEQUENCE = (
+    "0x1@450-500;0x2@520-570;0x4@590-640;0x8@660-710;"
+    "0x10@730-780;0x20@800-850;0x40@870-920;0x80@940-990;0x100@1010-1060"
+)
+
+
+def load_symbols(elf):
+    out = subprocess.check_output(["arm-none-eabi-nm", "--defined-only", str(elf)], text=True)
+    return {p[2]: int(p[0], 16) for line in out.splitlines() if len(p := line.split()) == 3}
+
+
+def run_suite(suite, emulator, bios, out):
+    out.mkdir(parents=True, exist_ok=True)
+    if suite in ("mmu-identity", "mmu-undefined"):
+        mode = suite.split("-", 1)[1]
+        subprocess.run(["cmake", "--build", str(ROOT / "build"), "--target", f"mmu_{mode}_disc_image"],
+                       check=True, stdout=subprocess.DEVNULL)
+        result = out / "mmu-result.json"
+        result.unlink(missing_ok=True)
+        elf = ROOT / f"build/vflash_mmu_{mode}.elf"
+        cmd = [sys.executable, str(ROOT / "tools/emulator_smoke.py"),
+               "--emulator", str(emulator), "--bios", str(bios),
+               "--elf", str(elf), "--disc", str(ROOT / f"build/mmu/{mode}/homebrew.cue"),
+               "--out", str(out)]
+        if mode == "identity":
+            cmd.append("--verify-video")
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
+        sy = load_symbols(elf)
+        ram = (out / "ram.bin").read_bytes()
+        word = lambda name: struct.unpack_from("<I", ram, sy[name] - 0x10000000)[0]
+        observed = {k: word(k) for k in ("mmu_status", "mmu_enabled_control", "mmu_disabled_control",
+                                         "mmu_init_ticks", "mmu_tables_bytes", "mmu_probe")}
+        if not (observed["mmu_status"] == 0x4D4D5531 and observed["mmu_probe"] == 0x1926ABCD
+                and (observed["mmu_enabled_control"] & 1) and not (observed["mmu_disabled_control"] & 1)
+                and not (observed["mmu_enabled_control"] & 0x1004)):
+            raise ValueError(f"MMU bring-up failed: {observed}")
+        if (sy["vflash_mmu_l1"] & 16383) or (sy["vflash_mmu_l2"] & 1023):
+            raise ValueError("table alignment")
+        if mode == "undefined":
+            from host_renderer import read_ppm, to_rgb
+            from panic_smoke import load_renderer, reference_pixels
+            data = ram[sy["vflash_crash_record"] - 0x10000000:][:180]
+            record = struct.unpack("<29I64s", data)
+            if (record[0], record[2], record[3], record[4], record[7]) != (
+                0x56435253, 3, 23, sy["mmu_fault_instruction"], sy["mmu_fault_instruction"] + 4
+            ):
+                raise ValueError("wrong CPU exception/PC")
+            with tempfile.TemporaryDirectory() as tmp:
+                native = reference_pixels(data, load_renderer(Path(tmp) / "panic.so"))
+            if ram[sy["vflash_panic_pixels"] - 0x10000000:][:len(native)] != native:
+                raise ValueError("panic RAM pixels")
+            if read_ppm(out / "frame.ppm") != (320, 240, to_rgb(native)):
+                raise ValueError("panic scanout")
+        result.write_text(json.dumps(dict(
+            passed=True, scope="translation only; no abort or permission validation",
+            observed=observed, initialization_us=observed["mmu_init_ticks"] * 100
+        ), indent=2) + "\n")
+        print(result.read_text())
+        return
+
+    def run_variant(kind, mmu):
+        v_out = out / f"{kind}-{mmu}"
+        v_out.mkdir(parents=True, exist_ok=True)
+        if suite == "input":
+            elf = ROOT / (f"build/vflash_input_{mmu}.elf" if kind == "native" else f"build/vflash_sdl2_input_{mmu}.elf")
+            disc = ROOT / (f"build/input/{mmu}/homebrew.cue" if kind == "native" else f"build/input/sdl2/{mmu}/homebrew.cue")
+            extra = ["--input", INPUT_SEQUENCE, "--frames", "1100"]
+        elif suite == "audio":
+            elf = ROOT / (f"build/vflash_audio_{mmu}.elf" if kind == "native" else f"build/vflash_sdl2_audio_{mmu}.elf")
+            disc = ROOT / (f"build/audio/{mmu}/homebrew.cue" if kind == "native" else f"build/audio/sdl2/{mmu}/homebrew.cue")
+            extra = ["--frames", "600"]
+        else:
+            elf = ROOT / (f"build/vflash_fs_{mmu}.elf" if kind == "native" else f"build/vflash_sdl2_asset_{mmu}.elf")
+            disc = ROOT / (f"build/fs/native/{mmu}/homebrew.cue" if kind == "native" else f"build/fs/sdl2/{mmu}/homebrew.cue")
+            extra = ["--frames", "600" if kind == "native" else "800"]
+
+        subprocess.run([
+            sys.executable, str(ROOT / "tools/emulator_smoke.py"),
+            "--emulator", str(emulator), "--bios", str(bios),
+            "--elf", str(elf), "--disc", str(disc),
+            *extra, "--out", str(v_out),
+        ], check=True, stdout=subprocess.DEVNULL, timeout=180)
+        sy = load_symbols(elf)
+        ram = (v_out / "ram.bin").read_bytes()
+        word = lambda name: struct.unpack_from("<I", ram, sy[name] - 0x10000000)[0]
+        sword = lambda name: struct.unpack_from("<i", ram, sy[name] - 0x10000000)[0]
+        assert word("startup_status") == 0x600D600D
+        if suite == "input":
+            if kind == "native":
+                assert word("input_probe_status") == 0x19001900 and word("input_connected") == 1
+                assert word("input_buttons_ever_seen") == 0x1FF and word("input_buttons_ever_pressed") == 0x1FF and word("input_buttons_ever_released") == 0x1FF
+                assert (sword("input_min_axis_x"), sword("input_max_axis_x"), sword("input_min_axis_y"), sword("input_max_axis_y")) == (-32768, 32767, -32768, 32767)
+            else:
+                assert word("sdl2_input_status") == 0x5D121900 and word("sdl2_joy_opened") == 1 and word("sdl2_controller_opened") == 1
+                assert word("sdl2_buttons_seen") == 0x1F and word("sdl2_axis_motion_count") >= 50
+        elif suite == "audio":
+            if kind == "native":
+                assert word("audio_demo_active") == 1 and word("audio_demo_samples_played") >= 1000 and word("audio_demo_underruns") == 0
+            else:
+                assert word("sdl2_audio_active") == 1 and word("sdl2_audio_callback_calls") >= 10 and word("sdl2_audio_samples_played") >= 1000
+        else:
+            if kind == "native":
+                assert word("fs_demo_err") == 0 and word("fs_demo_tests_passed") == 8 and word("fs_demo_bytes_read") == 6308
+            else:
+                assert word("asset_demo_err") == 0 and word("asset_demo_cfg_loaded") == 1 and word("asset_demo_bmp_loaded") == 1 and word("asset_demo_wav_loaded") == 1
+        return f"PASS {suite} {kind} {mmu}"
+
+    suite_targets = {
+        "input": ("input_off_disc_image", "input_on_disc_image", "sdl2_input_off_disc_image", "sdl2_input_on_disc_image"),
+        "audio": ("audio_off_disc_image", "audio_on_disc_image", "sdl2_audio_off_disc_image", "sdl2_audio_on_disc_image"),
+        "fs": ("fs_off_disc_image", "fs_on_disc_image", "sdl2_asset_off_disc_image", "sdl2_asset_on_disc_image"),
+    }[suite]
+    subprocess.run(["cmake", "--build", str(ROOT / "build"), "--target", *suite_targets],
+                   check=True, stdout=subprocess.DEVNULL)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+        futs = [pool.submit(run_variant, kind, mmu) for mmu in ("off", "on") for kind in ("native", "sdl2")]
+        for f in futs:
+            print(f.result(), flush=True)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--emulator", required=True, type=Path)
-    parser.add_argument("--elf", required=True, type=Path)
-    parser.add_argument("--out", required=True, type=Path)
+    parser.add_argument("--emulator", default=ROOT / "build/emulator/flashem", type=Path)
+    parser.add_argument("--elf", type=Path)
+    parser.add_argument("--out", type=Path)
+    parser.add_argument("--suite", choices=SUITES, help="run an acceptance suite (mmu-identity, mmu-undefined, input, audio, fs)")
     parser.add_argument("--nm", default="arm-none-eabi-nm")
-    parser.add_argument("--bios", type=Path, help="local original ROM; requires --disc")
+    parser.add_argument("--bios", type=Path, help="local original ROM; requires --disc (or --suite)")
     parser.add_argument("--disc", type=Path, help="homebrew CUE image; requires --bios")
     parser.add_argument("--frames", type=int, help="exit frame (default: 3 direct, 60 direct video, 1200 disc)")
     parser.add_argument("--timeout", type=float, help="host timeout in seconds (default: 30 direct, 120 disc)")
@@ -38,6 +160,13 @@ def main():
     parser.add_argument("--verify-animation", action="store_true",
                         help="verify animated firmware boot, buffer flips, movement, timing and exact pixels")
     args = parser.parse_args()
+    if args.suite:
+        bios = args.bios or (ROOT / "dumps/A29L160ATV@TSOP48.BIN")
+        out = args.out or (ROOT / f"build/{args.suite}-acceptance")
+        run_suite(args.suite, args.emulator, bios, out)
+        return 0
+    if not args.elf or not args.out:
+        parser.error("--elf and --out are required unless --suite is specified")
     if bool(args.bios) != bool(args.disc):
         parser.error("--bios and --disc must be supplied together")
     if args.verify_animation and (not args.disc or args.verify_video):

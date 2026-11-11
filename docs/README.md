@@ -2,8 +2,8 @@
 
 Commands in these documents run from the repository root unless stated otherwise.
 The supported evaluation target is the pinned FlashEm interpreter. Physical
-hardware, a firmware-managed application ABI, SDL2 and ScratchEverywhere ports
-remain outside the implemented baseline.
+hardware and a firmware-managed application ABI remain outside the implemented
+baseline.
 
 ## Guides
 

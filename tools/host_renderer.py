@@ -1,4 +1,5 @@
 """Compile and call the same CPU drawing implementation on the host."""
+import argparse
 import ctypes
 import hashlib
 import json
@@ -7,6 +8,7 @@ from pathlib import Path
 import shutil
 import struct
 import subprocess
+import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -104,3 +106,42 @@ def read_ppm(path):
         if len(rgb) != width * height * 3:
             raise ValueError("screenshot size mismatch")
     return width, height, rgb
+
+
+def render_font_atlas(output):
+    output = Path(output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="font-preview-") as temp:
+        library = build_library(Path(temp) / "font.so")
+        pixels = (ctypes.c_uint16 * (WIDTH * HEIGHT))()
+        fb = Framebuffer(pixels, WIDTH, HEIGHT, WIDTH, len(pixels), 1)
+        library.draw_clear(ctypes.byref(fb), 0x101820)
+        library.draw_text(ctypes.byref(fb), 12, 8, b"ASCII 0x20 - 0x7E", 0xFFFFFF, 2)
+        for index, code in enumerate(range(0x20, 0x7F)):
+            x, y = 16 + index % 16 * 18, 40 + index // 16 * 30
+            library.draw_text(ctypes.byref(fb), x, y, f"{code:02X}".encode(), 0x60E0B0, 1)
+            library.draw_text(ctypes.byref(fb), x, y + 10, bytes([code]), 0xFFFFFF, 2)
+        native = struct.pack(f"<{WIDTH * HEIGHT}H", *pixels)
+        output.write_bytes(f"P6\n{WIDTH} {HEIGHT}\n255\n".encode() + to_rgb(native))
+    print(f"Host font atlas: {output.resolve()} (95 glyphs, including blank space at 20)")
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("output", type=Path, help="output directory (or destination PPM with --font-atlas)")
+    parser.add_argument("--font-atlas", action="store_true", help="render a labeled printable ASCII font atlas PPM")
+    args = parser.parse_args()
+    try:
+        if args.font_atlas:
+            render_font_atlas(args.output)
+        else:
+            _, _, metadata = render_reference(args.output)
+            print(json.dumps(metadata, indent=2))
+    except (ValueError, OSError, subprocess.SubprocessError) as error:
+        print(f"Host render failed: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

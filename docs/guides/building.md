@@ -11,7 +11,7 @@ native `cc` (or the compiler executable specified by `VFLASH_HOST_CC`).
 
 ```sh
 cmake -S . -B build -G Ninja \
-  -DCMAKE_TOOLCHAIN_FILE=cmake/arm-none-eabi.cmake
+  -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-vflash.cmake
 cmake --build build
 ctest --test-dir build --output-on-failure
 cmake --build build --target disc_image
