@@ -5,7 +5,7 @@
 #define SOUND_REG(offset) (*(volatile uint32_t *)(uintptr_t)(SOUND_BASE + (offset)))
 #define VOICE_REG(v, offset) SOUND_REG(((uint32_t)(v) << 6) + (offset))
 
-#define VFLASH_AUDIO_RING_SAMPLES 4096u
+#define VFLASH_AUDIO_RING_SAMPLES 16384u
 #define VFLASH_AUDIO_RING_MASK    (VFLASH_AUDIO_RING_SAMPLES - 1u)
 
 /* Static DMA ring buffers in SDRAM */
@@ -74,9 +74,12 @@ bool vflash_audio_init(const vflash_audio_config_t *config)
     s_start_addr = (uint32_t)(uintptr_t)s_ring_left;
     s_end_addr = s_start_addr + (VFLASH_AUDIO_RING_SAMPLES << 1);
 
-    /* Frequency step calculation: 4096 (1<<12) corresponds to unity rate (44100 Hz).
-     * For arbitrary rates: (sample_rate * 4096) / 44100 = (sample_rate * 6087) >> 16 */
-    uint32_t step = (s_sample_rate == 44100u) ? 4096u : ((s_sample_rate * 6087u) >> 16);
+    /* Frequency step calculation:
+     * When VOICE_REG(v, 0x0C) has bit 2 set (0x1F4), the hardware voice base rate is 22050 Hz.
+     * Step value 4096 (1<<12) corresponds to unity rate (1.0x pitch multiplier).
+     * For 22050 Hz playback: step = 4096.
+     * For arbitrary rates: (sample_rate * 4096) / 22050, clamped to max hardware step 8191. */
+    uint32_t step = (s_sample_rate == 22050u) ? 4096u : ((s_sample_rate * 4096u) / 22050u);
     if (step == 0) step = 1;
     if (step > 8191) step = 8191;
 

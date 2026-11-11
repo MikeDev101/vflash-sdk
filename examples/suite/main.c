@@ -320,26 +320,59 @@ static bool check_abort_to_menu(void)
 }
 
 /* --- Background Music (BGM) Streamer --- */
+#define BGM_CHUNK_SIZE (16 * 1024)
+
+static uint8_t s_bgm_ram_chunk[BGM_CHUNK_SIZE] __attribute__((aligned(64)));
+static uint32_t s_bgm_chunk_len = 0;
+static uint32_t s_bgm_chunk_pos = 0;
+static uint32_t s_bgm_file_pos = 44;
+static uint32_t s_bgm_file_size = 0;
 static int s_bgm_fd = -1;
 static bool s_bgm_active = false;
-static int32_t s_bgm_saved_pos = 44;
-static int16_t s_bgm_chunk[1024] __attribute__((aligned(64)));
 
 static void bgm_tick(void);
+
+static void bgm_load_chunk(void)
+{
+    if (s_bgm_fd < 0 || s_bgm_file_size <= 44) {
+        s_bgm_chunk_len = 0;
+        s_bgm_chunk_pos = 0;
+        return;
+    }
+
+    if (s_bgm_file_pos >= s_bgm_file_size) {
+        s_bgm_file_pos = 44;
+    }
+    vflash_fs_seek(s_bgm_fd, (int32_t)s_bgm_file_pos, SEEK_SET);
+
+    uint32_t remaining = s_bgm_file_size - s_bgm_file_pos;
+    uint32_t to_read = (remaining < BGM_CHUNK_SIZE) ? remaining : BGM_CHUNK_SIZE;
+    to_read &= ~1u;
+
+    if (to_read == 0) {
+        s_bgm_file_pos = 44;
+        vflash_fs_seek(s_bgm_fd, 44, SEEK_SET);
+        remaining = s_bgm_file_size - 44;
+        to_read = (remaining < BGM_CHUNK_SIZE) ? remaining : BGM_CHUNK_SIZE;
+        to_read &= ~1u;
+    }
+
+    int32_t n = vflash_fs_read(s_bgm_fd, s_bgm_ram_chunk, to_read);
+    if (n > 0) {
+        s_bgm_chunk_len = (uint32_t)n & ~1u;
+        s_bgm_chunk_pos = 0;
+        s_bgm_file_pos += s_bgm_chunk_len;
+    } else {
+        s_bgm_chunk_len = 0;
+        s_bgm_chunk_pos = 0;
+    }
+}
 
 static void bgm_stop(void)
 {
     if (s_bgm_active) {
         vflash_audio_shutdown();
         s_bgm_active = false;
-    }
-    if (s_bgm_fd >= 0) {
-        int32_t cur = vflash_fs_seek(s_bgm_fd, 0, SEEK_CUR);
-        if (cur >= 44) {
-            s_bgm_saved_pos = cur;
-        }
-        vflash_fs_close(s_bgm_fd);
-        s_bgm_fd = -1;
     }
 }
 
@@ -348,55 +381,72 @@ static void bgm_start(void)
     if (s_bgm_active) return;
 
     vflash_fs_init();
-    s_bgm_fd = vflash_fs_open("bubblesystem.wav");
     if (s_bgm_fd < 0) {
-        s_bgm_fd = vflash_fs_open("BUBBLESY.WAV");
+        s_bgm_fd = vflash_fs_open("bubblesystem.wav");
+        if (s_bgm_fd < 0) {
+            s_bgm_fd = vflash_fs_open("BUBBLESY.WAV");
+        }
     }
     if (s_bgm_fd < 0) {
         return;
     }
 
-    if (s_bgm_saved_pos < 44) {
-        s_bgm_saved_pos = 44;
+    if (s_bgm_file_size == 0) {
+        int32_t sz = vflash_fs_seek(s_bgm_fd, 0, SEEK_END);
+        if (sz <= 44) {
+            vflash_fs_close(s_bgm_fd);
+            s_bgm_fd = -1;
+            return;
+        }
+        s_bgm_file_size = (uint32_t)sz;
     }
-    int32_t file_sz = vflash_fs_seek(s_bgm_fd, 0, SEEK_END);
-    if (file_sz <= 44 || s_bgm_saved_pos >= file_sz) {
-        s_bgm_saved_pos = 44;
-    }
-    vflash_fs_seek(s_bgm_fd, s_bgm_saved_pos, SEEK_SET);
 
     vflash_audio_config_t cfg = {
         .sample_rate = 22050,
         .channels = 1,
         .format = VFLASH_AUDIO_FMT_S16LE,
-        .buffer_samples = 4096
+        .buffer_samples = 16384
     };
     if (vflash_audio_init(&cfg)) {
         s_bgm_active = true;
+        if (s_bgm_chunk_pos >= s_bgm_chunk_len) {
+            bgm_load_chunk();
+        }
         bgm_tick();
-    } else {
-        vflash_fs_close(s_bgm_fd);
-        s_bgm_fd = -1;
     }
 }
 
 static void bgm_tick(void)
 {
-    if (!s_bgm_active || s_bgm_fd < 0) return;
+    if (!s_bgm_active) return;
 
-    while (vflash_audio_get_available_bytes() >= sizeof(s_bgm_chunk)) {
-        int32_t n = vflash_fs_read(s_bgm_fd, s_bgm_chunk, sizeof(s_bgm_chunk));
-        if (n <= 0) {
-            /* Loop back to beginning of audio data */
-            vflash_fs_seek(s_bgm_fd, 44, SEEK_SET);
-            n = vflash_fs_read(s_bgm_fd, s_bgm_chunk, sizeof(s_bgm_chunk));
-            if (n <= 0) break;
+    while (1) {
+        uint32_t avail = vflash_audio_get_available_bytes();
+        if (avail < 1024) {
+            break;
         }
-        uint32_t to_write = (uint32_t)n & ~1u;
-        if (to_write > 0) {
-            vflash_audio_write(s_bgm_chunk, to_write);
+
+        if (s_bgm_chunk_pos >= s_bgm_chunk_len) {
+            bgm_load_chunk();
+            if (s_bgm_chunk_len == 0) {
+                break;
+            }
         }
+
+        uint32_t chunk_remaining = s_bgm_chunk_len - s_bgm_chunk_pos;
+        uint32_t to_write = (chunk_remaining < avail) ? chunk_remaining : avail;
+        to_write &= ~1u;
+        if (to_write == 0) {
+            break;
+        }
+
+        uint32_t written = vflash_audio_write(s_bgm_ram_chunk + s_bgm_chunk_pos, to_write);
+        if (written == 0) {
+            break;
+        }
+        s_bgm_chunk_pos += written;
     }
+
     vflash_audio_update();
 }
 
@@ -410,6 +460,7 @@ static void wait_for_ok_button(vflash_framebuffer_t *fb)
         }
         vflash_video_present(fb);
         suite_frames++;
+        bgm_tick();
     }
 }
 
@@ -459,6 +510,7 @@ static bool run_test_cpu_clock(vflash_framebuffer_t *fb, bool batch_mode)
 
         vflash_video_present(fb);
         suite_frames++;
+        bgm_tick();
     }
 
     uint16_t end_ticks = vflash_clock_ticks();
@@ -622,6 +674,7 @@ static bool run_test_ram_mmu(vflash_framebuffer_t *fb, bool batch_mode)
 
         vflash_video_present(fb);
         suite_frames++;
+        bgm_tick();
     }
 
     if (!batch_mode) {
@@ -741,6 +794,7 @@ static bool run_test_gpu_2d(vflash_framebuffer_t *fb, bool batch_mode)
 
         vflash_video_present(fb);
         suite_frames++;
+        bgm_tick();
     }
 
     vflash_gpu_shutdown(&g);
@@ -1006,6 +1060,7 @@ static bool run_test_gpu_3d_cube(vflash_framebuffer_t *fb, bool batch_mode)
 
         vflash_video_present(fb);
         suite_frames++;
+        bgm_tick();
     }
 
     vflash_gpu_shutdown(&g);
@@ -1096,6 +1151,7 @@ static bool run_test_iso9660_fs(vflash_framebuffer_t *fb, bool batch_mode)
 
         vflash_video_present(fb);
         suite_frames++;
+        bgm_tick();
     }
 
     if (all_ok) {
@@ -1213,6 +1269,7 @@ static bool run_test_sdl2_assets(vflash_framebuffer_t *fb, bool batch_mode)
 
         vflash_video_present(fb);
         suite_frames++;
+        bgm_tick();
     }
 
     if (all_ok) {
@@ -1264,6 +1321,7 @@ static void record_test_result(uint32_t test_num, bool passed)
 
 static void show_automated_test_summary(vflash_framebuffer_t *fb)
 {
+    bgm_start();
     while (1) {
         vflash_input_poll();
         const vflash_input_state_t *st = vflash_input_get_state();
@@ -1316,6 +1374,7 @@ static void show_automated_test_summary(vflash_framebuffer_t *fb)
 
         vflash_video_present(fb);
         suite_frames++;
+        bgm_tick();
     }
 }
 
@@ -1759,6 +1818,7 @@ static void run_diag_sound_menu(vflash_framebuffer_t *fb)
 
         vflash_video_present(fb);
         suite_frames++;
+        bgm_tick();
     }
 
     vflash_audio_shutdown();
@@ -1892,40 +1952,28 @@ void vflash_main(void)
                 bgm_start();
                 break;
             case 1:
-                bgm_stop();
                 record_test_result(1, run_test_cpu_clock(&fb, false));
                 suite_current_test = 0;
-                bgm_start();
                 break;
             case 2:
-                bgm_stop();
                 record_test_result(2, run_test_ram_mmu(&fb, false));
                 suite_current_test = 0;
-                bgm_start();
                 break;
             case 3:
-                bgm_stop();
                 record_test_result(3, run_test_gpu_2d(&fb, false));
                 suite_current_test = 0;
-                bgm_start();
                 break;
             case 4:
-                bgm_stop();
                 record_test_result(4, run_test_gpu_3d_cube(&fb, false));
                 suite_current_test = 0;
-                bgm_start();
                 break;
             case 5:
-                bgm_stop();
                 record_test_result(5, run_test_iso9660_fs(&fb, false));
                 suite_current_test = 0;
-                bgm_start();
                 break;
             case 6:
-                bgm_stop();
                 record_test_result(6, run_test_sdl2_assets(&fb, false));
                 suite_current_test = 0;
-                bgm_start();
                 break;
             case 7:
                 run_diag_input(&fb);

@@ -53,6 +53,9 @@ static int fs_load_sector(uint32_t lba)
 
 int vflash_fs_init(void)
 {
+    if (s_fs_ready) {
+        return 0;
+    }
     s_cached_lba = 0xFFFFFFFFu;
     s_root_cached = false;
     s_fs_ready = false;
