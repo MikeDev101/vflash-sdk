@@ -31,6 +31,7 @@ def main():
     parser.add_argument("--frames", type=int, help="exit frame (default: 3 direct, 60 direct video, 1200 disc)")
     parser.add_argument("--timeout", type=float, help="host timeout in seconds (default: 30 direct, 120 disc)")
     parser.add_argument("--trace-video", action="store_true", help="log scanout address changes")
+    parser.add_argument("--input", help="input events in format '<hex_mask>@<start_frame>-<end_frame>;...' for FlashEm VFLASH_INPUT")
     parser.add_argument("--watch-vectors", action="store_true", help="log writes to the tested firmware UND/SWI RAM slots")
     parser.add_argument("--verify-video", action="store_true",
                         help="compare video status, RAM framebuffer and actual scanout against the host C renderer")
@@ -103,6 +104,8 @@ def main():
             if not bios:
                 rom.write_bytes(struct.pack("<I", 0xEAFFFFFE))  # b .
             env["FLASHEM_BIOS"] = str(rom)
+            if args.input:
+                env["VFLASH_INPUT"] = args.input
             command = [str(local_emulator), "--headless", "--language", "bios"]
             if disc:
                 # ELF is used for symbols only, never injected into guest RAM.

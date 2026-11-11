@@ -40,7 +40,9 @@ extern void free(void *ptr);
 
 /* Disabled subsystems */
 #define SDL_AUDIO_DISABLED 1
-#define SDL_JOYSTICK_DISABLED 1
+/* Joystick driver: V.Flash controller mapped to PSP driver interface */
+#define SDL_JOYSTICK_PSP 1
+#define SDL_PSP_JoystickDriver SDL_VFLASH_JoystickDriver
 #define SDL_HAPTIC_DISABLED 1
 #define SDL_HIDAPI_DISABLED 1
 #define SDL_SENSOR_DISABLED 1
