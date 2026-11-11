@@ -1,6 +1,11 @@
 #ifndef VFLASH_MMU_H
 #define VFLASH_MMU_H
 #include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* ARMv5 domain 0, uncached/unbuffered descriptors only. AP controls USER
  * permissions: AP=2 does not make privileged code read-only. */
 typedef enum { VFLASH_MMU_OK, VFLASH_MMU_ALIGNMENT, VFLASH_MMU_CONFLICT,
@@ -19,4 +24,9 @@ vflash_mmu_result_t vflash_mmu_disable(void);
 void vflash_mmu_invalidate_tlb(void);
 uint32_t vflash_mmu_descriptor(uint32_t va, uint32_t level);
 uint32_t vflash_mmu_control(void);
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif

@@ -34,6 +34,7 @@ MMU_ONLY_DEMOS = (
     "fs",
     "sdl2-asset",
     "suite",
+    "cpp",
 )
 DEMOS = (
     "hello",
@@ -92,6 +93,8 @@ def resolve_demo(demo, panic_test, gpu_mmu, gpu_view):
         return f"sdl2_asset_{mmu}_disc_image", f"build/fs/sdl2/{mmu}/homebrew.cue", f"build/play-sdl2-asset-{mmu}"
     if demo == "suite":
         return f"suite_{mmu}_disc_image", f"build/suite/{mmu}/homebrew.cue", f"build/play-suite-{mmu}"
+    if demo == "cpp":
+        return f"cpp_{mmu}_disc_image", f"build/cpp/{mmu}/homebrew.cue", f"build/play-cpp-{mmu}"
     view = gpu_view or "a"
     kind = demo.split("-", 1)[1].replace("-", "_")
     return (

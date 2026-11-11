@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(vflash_sdk VERSION 0.1.0 LANGUAGES C ASM)
+project(vflash_sdk VERSION 0.1.0 LANGUAGES C CXX ASM)
 
 if(NOT CMAKE_CROSSCOMPILING OR NOT CMAKE_SYSTEM_NAME STREQUAL "VFlash" OR NOT CMAKE_C_COMPILER_ID STREQUAL "GNU")
     message(FATAL_ERROR "Configure with -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-vflash.cmake (GNU Arm required)")
@@ -537,6 +537,26 @@ if(VFLASH_ENABLE_SDL2 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/SDL2/incl
         endif()
         target_link_libraries(${suite_target} PRIVATE -Wl,--start-group SDL2 gcc -Wl,--end-group)
         vflash_add_disc_with_assets(suite_${mmu}_disc_image ${suite_target} suite/${mmu} "${CMAKE_CURRENT_SOURCE_DIR}/examples/suite/assets")
+
+        set(cpp_target vflash_cpp_${mmu})
+        vflash_add_program(${cpp_target} firmware-disc.ld
+            examples/cpp/main.cpp
+            src/platform/clock.c
+            ${sdl2_gpu_sources}
+        )
+        target_include_directories(${cpp_target} PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/include/sdl2_vflash"
+            "${CMAKE_CURRENT_SOURCE_DIR}/external/SDL2/include"
+        )
+        target_compile_definitions(${cpp_target} PRIVATE
+            DYNAPI_NEEDS_DLOPEN=1
+        )
+        if(mmu STREQUAL "on")
+            target_sources(${cpp_target} PRIVATE src/platform/mmu.c src/platform/mmu_arm926.S)
+            target_compile_definitions(${cpp_target} PRIVATE VFLASH_ENABLE_MMU=1)
+        endif()
+        target_link_libraries(${cpp_target} PRIVATE -Wl,--start-group SDL2 gcc -Wl,--end-group)
+        vflash_add_disc(cpp_${mmu}_disc_image ${cpp_target} cpp/${mmu})
     endforeach()
 endif()
 

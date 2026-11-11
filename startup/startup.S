@@ -17,8 +17,31 @@ _start:
     strlo r2, [r0], #4
     blo 1b
     bl vflash_panic_init
-    bl vflash_main
+
+    /* Call constructors in .preinit_array */
+    ldr r4, =__preinit_array_start
+    ldr r5, =__preinit_array_end
 2:
+    cmp r4, r5
+    bhs 3f
+    ldr r3, [r4], #4
+    cmp r3, #0
+    blxne r3
     b 2b
+3:
+    /* Call constructors in .init_array */
+    ldr r4, =__init_array_start
+    ldr r5, =__init_array_end
+4:
+    cmp r4, r5
+    bhs 5f
+    ldr r3, [r4], #4
+    cmp r3, #0
+    blxne r3
+    b 4b
+5:
+    bl vflash_main
+6:
+    b 6b
 .size _start, . - _start
 .section .note.GNU-stack, "", %progbits

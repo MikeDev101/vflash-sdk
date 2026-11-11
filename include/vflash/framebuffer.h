@@ -2,6 +2,10 @@
 #define VFLASH_FRAMEBUFFER_H
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 enum { VFLASH_BGR555 = 1, VFLASH_WIDTH = 320, VFLASH_HEIGHT = 240 };
 typedef struct {
     uint16_t *pixels;
@@ -11,4 +15,9 @@ typedef struct {
     uint32_t capacity_pixels;
     uint32_t pixel_format;
 } vflash_framebuffer_t;
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif

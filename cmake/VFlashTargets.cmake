@@ -3,14 +3,19 @@
 function(vflash_add_program target script)
     add_executable(${target} startup/startup.S startup/panic_entry.S
         src/runtime/panic.c src/runtime/panic_render.c
+        src/runtime/alloc.c src/runtime/cxxabi.cpp
         src/platform/video.c src/platform/input.c src/platform/audio.c src/graphics/draw.c src/graphics/font.c ${ARGN})
     target_include_directories(${target} PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/include" "${CMAKE_CURRENT_SOURCE_DIR}/examples/common")
-    set_target_properties(${target} PROPERTIES SUFFIX ".elf" C_STANDARD 11 C_STANDARD_REQUIRED YES)
+    set_target_properties(${target} PROPERTIES
+        SUFFIX ".elf"
+        C_STANDARD 11 C_STANDARD_REQUIRED YES
+        CXX_STANDARD 17 CXX_STANDARD_REQUIRED YES)
     set(arch_flags -mcpu=arm926ej-s -marm -mfloat-abi=soft -mlittle-endian -mabi=aapcs -fno-short-enums)
     target_compile_options(${target} PRIVATE ${arch_flags} -Os -g3 -ffreestanding -fno-builtin
         -ffunction-sections -fdata-sections -fno-unwind-tables -fno-asynchronous-unwind-tables
-        -Wall -Wextra -Werror)
+        -Wall -Wextra -Werror
+        $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions -fno-rtti>)
     set(linker_script "${CMAKE_CURRENT_SOURCE_DIR}/startup/${script}")
     target_link_options(${target} PRIVATE ${arch_flags} -nostdlib -nostartfiles -static
         "-T${linker_script}" -Wl,--gc-sections -Wl,--build-id=none -Wl,-z,noexecstack

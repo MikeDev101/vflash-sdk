@@ -2,6 +2,10 @@
 #define VFLASH_PANIC_H
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 enum { VFLASH_PANIC_FATAL = 1, VFLASH_PANIC_ASSERT = 2, VFLASH_PANIC_UNDEFINED = 3,
        VFLASH_PANIC_SWI = 4, VFLASH_PANIC_PREFETCH_ABORT = 5, VFLASH_PANIC_DATA_ABORT = 6 };
 enum { VFLASH_VECTOR_UNDEFINED = 1, VFLASH_VECTOR_SWI = 2 };
@@ -22,5 +26,10 @@ int vflash_panic_restore_vectors(void);
 int vflash_panic_vectors_intact(void);
 __attribute__((noreturn)) void vflash_panic(uint32_t reason, const char *message);
 void vflash_panic_draw(uint16_t *pixels, const vflash_crash_record_t *record);
+
+#ifdef __cplusplus
+}
+#endif
+
 #define VFLASH_ASSERT(expression) do { if (!(expression)) vflash_panic(VFLASH_PANIC_ASSERT, #expression); } while (0)
 #endif

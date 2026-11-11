@@ -9,6 +9,25 @@ SECTIONS
 {
     .text : ALIGN(4) { KEEP(*(.text.startup)) *(.text .text.*) } > RAM :code
     .rodata : ALIGN(4) { *(.rodata .rodata.*) } > RAM :code
+    .preinit_array : ALIGN(4) {
+        PROVIDE_HIDDEN(__preinit_array_start = .);
+        KEEP(*(.preinit_array*))
+        PROVIDE_HIDDEN(__preinit_array_end = .);
+    } > RAM :code
+    .init_array : ALIGN(4) {
+        PROVIDE_HIDDEN(__init_array_start = .);
+        KEEP(*(SORT_BY_INIT_PRIORITY(.init_array.*) SORT_BY_INIT_PRIORITY(.ctors.*)))
+        KEEP(*(.init_array*))
+        KEEP(*(.ctors*))
+        PROVIDE_HIDDEN(__init_array_end = .);
+    } > RAM :code
+    .fini_array : ALIGN(4) {
+        PROVIDE_HIDDEN(__fini_array_start = .);
+        KEEP(*(SORT_BY_INIT_PRIORITY(.fini_array.*) SORT_BY_INIT_PRIORITY(.dtors.*)))
+        KEEP(*(.fini_array*))
+        KEEP(*(.dtors*))
+        PROVIDE_HIDDEN(__fini_array_end = .);
+    } > RAM :code
     .data : ALIGN(4) { *(.data .data.*) } > RAM :data
     .bss (NOLOAD) : ALIGN(4) {
         __bss_start = .;
@@ -29,5 +48,5 @@ SECTIONS
     __heap_start = ALIGN(__image_end, 64);
     __heap_end = __stack_bottom;
     ASSERT(__heap_start <= __heap_end, "Probe overlaps its 16 KiB stack")
-    /DISCARD/ : { *(.comment) *(.note*) }
+    /DISCARD/ : { *(.comment) *(.note*) *(.ARM.exidx*) *(.ARM.extab*) }
 }

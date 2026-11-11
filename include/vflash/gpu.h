@@ -1,6 +1,10 @@
 #ifndef VFLASH_GPU_H
 #define VFLASH_GPU_H
 #include "vflash/framebuffer.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 typedef enum { VFLASH_GPU_SOFTWARE, VFLASH_GPU_ZEVIO } vflash_gpu_backend_t;
 typedef enum { VFLASH_GPU_OK, VFLASH_GPU_UNSUPPORTED, VFLASH_GPU_INVALID, VFLASH_GPU_NOT_INITIALIZED, VFLASH_GPU_BUSY, VFLASH_GPU_TIMEOUT, VFLASH_GPU_DEVICE_ERROR, VFLASH_GPU_OUT_OF_MEMORY } vflash_gpu_result_t;
 typedef enum { VFLASH_GPU_LAYOUT_LINEAR, VFLASH_GPU_LAYOUT_ZEVIO_TILED } vflash_gpu_layout_t;
@@ -38,4 +42,9 @@ vflash_gpu_result_t vflash_gpu_clip(vflash_gpu_surface_t *surface, int32_t x, in
 vflash_gpu_result_t vflash_gpu_fill_rect(vflash_gpu_t *gpu,vflash_gpu_surface_t *surface,int32_t x,int32_t y,int32_t w,int32_t h,uint32_t rgb);
 vflash_gpu_result_t vflash_gpu_blit(vflash_gpu_t *gpu,vflash_gpu_surface_t *dst,const vflash_gpu_surface_t *src,int32_t x,int32_t y);
 vflash_gpu_result_t vflash_gpu_wait_idle(vflash_gpu_t *gpu);
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif
