@@ -40,10 +40,23 @@ def build_iso(boot, output, assets_dir=None):
                         dst.parent.mkdir(parents=True, exist_ok=True)
                         shutil.copy2(item, dst)
         image = temp / "candidate.iso"
+        sort_file = temp / "sort.txt"
+        sort_lines = []
+        for f in sorted(root.rglob("*")):
+            if f.is_file():
+                if f.name.upper() == "BOOT.BIN":
+                    weight = 10000
+                elif f.stat().st_size > 500000:
+                    weight = 10
+                else:
+                    weight = 1000
+                sort_lines.append(f"{f} {weight}\n")
+        sort_file.write_text("".join(sort_lines))
+
         command = [tool]
         if Path(tool).name == "xorriso":
             command += ["-as", "mkisofs"]
-        command += ["-iso-level", "1", "-V", "VFLASH_DEV", "-o", str(image), str(root)]
+        command += ["-iso-level", "1", "-sort", str(sort_file), "-V", "VFLASH_DEV", "-o", str(image), str(root)]
         subprocess.run(command, check=True)
         # Same filesystem; exclusive publication leaves no partial target.
         os.link(image, output)

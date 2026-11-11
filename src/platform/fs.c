@@ -1,5 +1,6 @@
 #include <vflash/fs.h>
 #include <vflash/cd.h>
+#include <stddef.h>
 
 typedef struct {
     bool used;
@@ -117,11 +118,59 @@ static bool match_iso_name(const char *name_on_disc, uint8_t len_on_disc, const 
         }
     }
 
-    if (disc_effective_len != tok_len) return false;
-    for (uint32_t i = 0; i < tok_len; ++i) {
-        if (!char_eq_ci(name_on_disc[i], token[i])) return false;
+    /* Exact match */
+    if (disc_effective_len == tok_len) {
+        bool match = true;
+        for (uint32_t i = 0; i < tok_len; ++i) {
+            if (!char_eq_ci(name_on_disc[i], token[i])) {
+                match = false;
+                break;
+            }
+        }
+        if (match) return true;
     }
-    return true;
+
+    /*
+     * ISO 9660 Level 1 8.3 truncation fallback:
+     * If the requested filename exceeds 8 characters before the extension dot,
+     * check if the disc entry has the first 8 characters and matching extension.
+     * E.g. requested "bubblesystem.wav" matches disc "BUBBLESY.WAV".
+     */
+    const char *tok_dot = NULL;
+    for (int32_t i = (int32_t)tok_len - 1; i >= 0; --i) {
+        if (token[i] == '.') {
+            tok_dot = &token[i];
+            break;
+        }
+    }
+    const char *disc_dot = NULL;
+    for (int32_t i = (int32_t)disc_effective_len - 1; i >= 0; --i) {
+        if (name_on_disc[i] == '.') {
+            disc_dot = &name_on_disc[i];
+            break;
+        }
+    }
+
+    if (tok_dot && disc_dot) {
+        uint32_t tok_base_len = (uint32_t)(tok_dot - token);
+        uint32_t disc_base_len = (uint32_t)(disc_dot - name_on_disc);
+        uint32_t tok_ext_len = tok_len - tok_base_len;
+        uint32_t disc_ext_len = disc_effective_len - disc_base_len;
+
+        if (tok_base_len > 8u && disc_base_len == 8u && tok_ext_len == disc_ext_len) {
+            /* Check 8-char base prefix */
+            for (uint32_t i = 0; i < 8u; ++i) {
+                if (!char_eq_ci(name_on_disc[i], token[i])) return false;
+            }
+            /* Check extension including dot */
+            for (uint32_t i = 0; i < tok_ext_len; ++i) {
+                if (!char_eq_ci(disc_dot[i], tok_dot[i])) return false;
+            }
+            return true;
+        }
+    }
+
+    return false;
 }
 
 int vflash_fs_open(const char *path)

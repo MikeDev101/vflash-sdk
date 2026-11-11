@@ -536,7 +536,7 @@ if(VFLASH_ENABLE_SDL2 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/SDL2/incl
             target_compile_definitions(${suite_target} PRIVATE VFLASH_ENABLE_MMU=1)
         endif()
         target_link_libraries(${suite_target} PRIVATE -Wl,--start-group SDL2 gcc -Wl,--end-group)
-        vflash_add_disc_with_assets(suite_${mmu}_disc_image ${suite_target} suite/${mmu} "${CMAKE_CURRENT_SOURCE_DIR}/examples/fs/assets")
+        vflash_add_disc_with_assets(suite_${mmu}_disc_image ${suite_target} suite/${mmu} "${CMAKE_CURRENT_SOURCE_DIR}/examples/suite/assets")
     endforeach()
 endif()
 
