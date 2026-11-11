@@ -30,6 +30,8 @@ DEMOS = (
     "gpu-sdl",
     "gpu-sdl2",
     "gpu-triangle",
+    "gpu-triangle-depth",
+    "gpu-triangle-tex",
 )
 PANIC_TESTS = (
     "manual", "undefined", "stack", "nested", "swi", "thumb",
@@ -62,7 +64,7 @@ def resolve_demo(demo, panic_test, gpu_mmu, gpu_view):
         return "gpu_native_disc_image", "build/gpu/native/homebrew.cue", "build/play-gpu-native"
     mmu = gpu_mmu or "off"
     view = gpu_view or "a"
-    kind = demo.split("-", 1)[1]
+    kind = demo.split("-", 1)[1].replace("-", "_")
     return (
         f"gpu_{kind}_{mmu}_{view}_disc_image",
         f"build/gpu/{kind}/{mmu}/{view}/homebrew.cue",
