@@ -29,6 +29,7 @@ DEMOS = (
     "gpu-lifecycle",
     "gpu-sdl",
     "gpu-sdl2",
+    "gpu-triangle",
 )
 PANIC_TESTS = (
     "manual", "undefined", "stack", "nested", "swi", "thumb",
