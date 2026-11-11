@@ -32,6 +32,7 @@ DEMOS = (
     "gpu-triangle",
     "gpu-triangle-depth",
     "gpu-triangle-tex",
+    "gpu-cube",
 )
 PANIC_TESTS = (
     "manual", "undefined", "stack", "nested", "swi", "thumb",
