@@ -258,6 +258,15 @@ foreach(mmu IN ITEMS off on)
         target_compile_definitions(${input_target} PRIVATE VFLASH_ENABLE_MMU=1)
     endif()
     vflash_add_disc(input_${mmu}_disc_image ${input_target} input/${mmu})
+
+    set(audio_target vflash_audio_${mmu})
+    vflash_add_program(${audio_target} firmware-disc.ld examples/audio/audio_demo.c src/platform/clock.c)
+    target_compile_definitions(${audio_target} PRIVATE VFLASH_DOUBLE_BUFFER=1)
+    if(mmu STREQUAL "on")
+        target_sources(${audio_target} PRIVATE src/platform/mmu.c src/platform/mmu_arm926.S)
+        target_compile_definitions(${audio_target} PRIVATE VFLASH_ENABLE_MMU=1)
+    endif()
+    vflash_add_disc(audio_${mmu}_disc_image ${audio_target} audio/${mmu})
 endforeach()
 
 option(VFLASH_ENABLE_SDL2 "Build real upstream SDL2 library and tests" ON)
@@ -360,6 +369,13 @@ if(VFLASH_ENABLE_SDL2 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/SDL2/incl
         external/SDL2/src/joystick/SDL_gamecontroller.c
         external/SDL2/src/joystick/controller_type.c
         src/graphics/sdl2_vflash/SDL_vflashjoystick.c
+        external/SDL2/src/audio/SDL_audio.c
+        external/SDL2/src/audio/SDL_audiocvt.c
+        external/SDL2/src/audio/SDL_audiodev.c
+        external/SDL2/src/audio/SDL_audiotypecvt.c
+        external/SDL2/src/audio/SDL_mixer.c
+        external/SDL2/src/audio/SDL_wave.c
+        src/graphics/sdl2_vflash/SDL_vflashaudio.c
     )
 
     add_library(SDL2 STATIC ${sdl2_sources})
@@ -457,5 +473,25 @@ if(VFLASH_ENABLE_SDL2 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/SDL2/incl
         endif()
         target_link_libraries(${sdl2_input_target} PRIVATE -Wl,--start-group SDL2 gcc -Wl,--end-group)
         vflash_add_disc(sdl2_input_${mmu}_disc_image ${sdl2_input_target} input/sdl2/${mmu})
+
+        set(sdl2_audio_target vflash_sdl2_audio_${mmu})
+        vflash_add_program(${sdl2_audio_target} firmware-disc.ld
+            examples/audio/sdl2_audio_demo.c
+            src/platform/clock.c
+            ${sdl2_gpu_sources}
+        )
+        target_include_directories(${sdl2_audio_target} PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/include/sdl2_vflash"
+            "${CMAKE_CURRENT_SOURCE_DIR}/external/SDL2/include"
+        )
+        target_compile_definitions(${sdl2_audio_target} PRIVATE
+            DYNAPI_NEEDS_DLOPEN=1
+        )
+        if(mmu STREQUAL "on")
+            target_sources(${sdl2_audio_target} PRIVATE src/platform/mmu.c src/platform/mmu_arm926.S)
+            target_compile_definitions(${sdl2_audio_target} PRIVATE VFLASH_ENABLE_MMU=1)
+        endif()
+        target_link_libraries(${sdl2_audio_target} PRIVATE -Wl,--start-group SDL2 gcc -Wl,--end-group)
+        vflash_add_disc(sdl2_audio_${mmu}_disc_image ${sdl2_audio_target} audio/sdl2/${mmu})
     endforeach()
 endif()

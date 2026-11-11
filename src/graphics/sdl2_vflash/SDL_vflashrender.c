@@ -398,8 +398,11 @@ static int VFLASH_RenderReadPixels(SDL_Renderer *renderer, const SDL_Rect *rect,
     return -1;
 }
 
+extern void VFLASH_AudioPump(void);
+
 static int VFLASH_RenderPresent(SDL_Renderer *renderer)
 {
+    VFLASH_AudioPump();
     VFLASH_RenderData *rdata = (VFLASH_RenderData *)renderer->driverdata;
     if (!rdata || !rdata->initialized) {
         return -1;

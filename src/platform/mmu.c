@@ -73,6 +73,7 @@ vflash_mmu_result_t vflash_mmu_identity(void)
     vflash_mmu_map_section(0,0,1); vflash_mmu_map_section(0x100000,0x100000,1);
     for (uint32_t i=0x100;i<0x110;++i) vflash_mmu_map_section(i<<20,i<<20,1);
     vflash_mmu_map_section(0x90000000,0x90000000,1);
+    vflash_mmu_map_section(0xB0000000,0xB0000000,1);
     vflash_mmu_map_section(0xB8000000,0xB8000000,1);
     return VFLASH_MMU_OK;
 }
@@ -89,7 +90,7 @@ vflash_mmu_result_t vflash_mmu_enable(void)
     uint32_t state=vflash_mmu_processor_state(), c=vflash_mmu_control();
     if (!initialized || (state&0xFF)!=0xD3 || (c&0x3004)) return VFLASH_MMU_UNSUPPORTED;
     for (uint32_t i=0;i<4096;++i) {
-        int required=i<2 || (i>=0x100 && i<0x110) || i==0x900 || i==0xB80;
+        int required=i<2 || (i>=0x100 && i<0x110) || i==0x900 || i==0xB00 || i==0xB80;
         if (required && vflash_mmu_l1[i]!=((i<<20)|0x412u)) return VFLASH_MMU_UNSUPPORTED;
     }
     vflash_mmu_activate((uint32_t)(uintptr_t)vflash_mmu_l1);

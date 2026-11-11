@@ -3,7 +3,7 @@
 function(vflash_add_program target script)
     add_executable(${target} startup/startup.S startup/panic_entry.S
         src/runtime/panic.c src/runtime/panic_render.c
-        src/platform/video.c src/platform/input.c src/graphics/draw.c src/graphics/font.c ${ARGN})
+        src/platform/video.c src/platform/input.c src/platform/audio.c src/graphics/draw.c src/graphics/font.c ${ARGN})
     target_include_directories(${target} PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/include" "${CMAKE_CURRENT_SOURCE_DIR}/examples/common")
     set_target_properties(${target} PROPERTIES SUFFIX ".elf" C_STANDARD 11 C_STANDARD_REQUIRED YES)

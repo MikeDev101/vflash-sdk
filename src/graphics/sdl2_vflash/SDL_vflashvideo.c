@@ -56,10 +56,12 @@ static void VFLASH_DestroyWindowFramebuffer(_THIS, SDL_Window *window)
     (void)window;
 }
 
+extern void VFLASH_AudioPump(void);
+
 static void VFLASH_PumpEvents(_THIS)
 {
     (void)_this;
-    /* Event polling hook (input devices not yet present on bare metal) */
+    VFLASH_AudioPump();
 }
 
 static void VFLASH_DeleteDevice(SDL_VideoDevice *device)

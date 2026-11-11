@@ -38,8 +38,9 @@ extern void *calloc(size_t nmemb, size_t size);
 extern void *realloc(void *ptr, size_t size);
 extern void free(void *ptr);
 
-/* Disabled subsystems */
-#define SDL_AUDIO_DISABLED 1
+/* Audio subsystem: V.Flash native audio mapped to PSP audio driver bootstrap */
+#define SDL_AUDIO_DRIVER_PSP 1
+#define PSPAUDIO_bootstrap VFLASH_AudioBootStrap
 /* Joystick driver: V.Flash controller mapped to PSP driver interface */
 #define SDL_JOYSTICK_PSP 1
 #define SDL_PSP_JoystickDriver SDL_VFLASH_JoystickDriver
