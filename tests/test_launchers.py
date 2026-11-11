@@ -105,6 +105,10 @@ class DumpedGameTests(unittest.TestCase):
                  "fs_on_disc_image", "build/fs/native/on/homebrew.cue"),
                 (["--demo", "sdl2-asset", "--gpu-mmu", "on"],
                  "sdl2_asset_on_disc_image", "build/fs/sdl2/on/homebrew.cue"),
+                (["--demo", "suite"],
+                 "suite_off_disc_image", "build/suite/off/homebrew.cue"),
+                (["--demo", "suite", "--gpu-mmu", "on"],
+                 "suite_on_disc_image", "build/suite/on/homebrew.cue"),
             ]
             for extra, target, disc in cases:
                 arguments = ["play-homebrew.sh", *extra, "--emulator", str(emulator), "--bios", str(bios)]

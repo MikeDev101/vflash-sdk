@@ -20,7 +20,7 @@ from elf_image import RAM_START, RAM_END, read_bounded, read_elf
 
 ROOT = Path(__file__).resolve().parents[1]
 EXPECTED = {"boot_marker": 0x56464C53, "startup_status": 0x600D600D, "data_cookie": 0x13579BDF}
-SUITES = ("mmu-identity", "mmu-undefined", "input", "audio", "fs")
+SUITES = ("mmu-identity", "mmu-undefined", "input", "audio", "fs", "suite")
 INPUT_SEQUENCE = (
     "0x1@450-500;0x2@520-570;0x4@590-640;0x8@660-710;"
     "0x10@730-780;0x20@800-850;0x40@870-920;0x80@940-990;0x100@1010-1060"
@@ -92,6 +92,16 @@ def run_suite(suite, emulator, bios, out):
             elf = ROOT / (f"build/vflash_audio_{mmu}.elf" if kind == "native" else f"build/vflash_sdl2_audio_{mmu}.elf")
             disc = ROOT / (f"build/audio/{mmu}/homebrew.cue" if kind == "native" else f"build/audio/sdl2/{mmu}/homebrew.cue")
             extra = ["--frames", "600"]
+        elif suite == "suite":
+            elf = ROOT / f"build/vflash_suite_{mmu}.elf"
+            disc = ROOT / f"build/suite/{mmu}/homebrew.cue"
+            seq = (
+                "0x100@440-455;"
+                "0x1@770-780;0x100@795-805;0x80@835-845;"
+                "0x1@860-870;0x100@885-895;0x80@915-925;"
+                "0x1@940-950;0x100@965-975"
+            )
+            extra = ["--input", seq, "--frames", "1000"]
         else:
             elf = ROOT / (f"build/vflash_fs_{mmu}.elf" if kind == "native" else f"build/vflash_sdl2_asset_{mmu}.elf")
             disc = ROOT / (f"build/fs/native/{mmu}/homebrew.cue" if kind == "native" else f"build/fs/sdl2/{mmu}/homebrew.cue")
@@ -121,6 +131,11 @@ def run_suite(suite, emulator, bios, out):
                 assert word("audio_demo_active") == 1 and word("audio_demo_samples_played") >= 1000 and word("audio_demo_underruns") == 0
             else:
                 assert word("sdl2_audio_active") == 1 and word("sdl2_audio_callback_calls") >= 10 and word("sdl2_audio_samples_played") >= 1000
+        elif suite == "suite":
+            assert word("suite_status") == 0x50415353
+            assert word("suite_tests_run") == 6 and word("suite_tests_passed") == 6 and word("suite_tests_failed") == 0
+            assert word("suite_results_mask") == 0x3F and word("suite_done_mask") == 0x3F
+            assert word("suite_diag_visited_mask") == 0x7 and word("suite_current_test") == 7
         else:
             if kind == "native":
                 assert word("fs_demo_err") == 0 and word("fs_demo_tests_passed") == 8 and word("fs_demo_bytes_read") == 6308
@@ -132,11 +147,13 @@ def run_suite(suite, emulator, bios, out):
         "input": ("input_off_disc_image", "input_on_disc_image", "sdl2_input_off_disc_image", "sdl2_input_on_disc_image"),
         "audio": ("audio_off_disc_image", "audio_on_disc_image", "sdl2_audio_off_disc_image", "sdl2_audio_on_disc_image"),
         "fs": ("fs_off_disc_image", "fs_on_disc_image", "sdl2_asset_off_disc_image", "sdl2_asset_on_disc_image"),
+        "suite": ("suite_off_disc_image", "suite_on_disc_image"),
     }[suite]
     subprocess.run(["cmake", "--build", str(ROOT / "build"), "--target", *suite_targets],
                    check=True, stdout=subprocess.DEVNULL)
+    kinds = ("unified",) if suite == "suite" else ("native", "sdl2")
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
-        futs = [pool.submit(run_variant, kind, mmu) for mmu in ("off", "on") for kind in ("native", "sdl2")]
+        futs = [pool.submit(run_variant, kind, mmu) for mmu in ("off", "on") for kind in kinds]
         for f in futs:
             print(f.result(), flush=True)
 

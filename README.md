@@ -67,6 +67,7 @@ FlashEm executable at `build/emulator/flashem`, through `FLASHEM`, or via
 ./play-homebrew.sh --demo sdl2-audio --gpu-mmu on
 ./play-homebrew.sh --demo fs --gpu-mmu on
 ./play-homebrew.sh --demo sdl2-asset --gpu-mmu on
+./play-homebrew.sh --demo suite
 ./open-bios.sh
 ./test-game.sh
 ```

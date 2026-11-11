@@ -193,6 +193,7 @@ has Thumb exception limitations documented there.
 ./play-homebrew.sh --demo sdl2-audio --gpu-mmu on
 ./play-homebrew.sh --demo fs --gpu-mmu on
 ./play-homebrew.sh --demo sdl2-asset --gpu-mmu on
+./play-homebrew.sh --demo suite
 ```
 
 For multi-view GPU demos (`gpu-tiled`, `gpu-frame`, `gpu-sprite`,
@@ -201,7 +202,7 @@ For multi-view GPU demos (`gpu-tiled`, `gpu-frame`, `gpu-sprite`,
 `gpu-triangle-tex`, `gpu-cube`), `--gpu-mmu` selects `off` (default) or `on`
 (identity MMU with `0xA8000000` mapped), and `--gpu-view` selects `a`
 (default), `b`, or `linear` (restored linear scanout after shutdown). For
-`input`, `sdl2-input`, `audio`, `sdl2-audio`, `fs`, and `sdl2-asset`,
+`input`, `sdl2-input`, `audio`, `sdl2-audio`, `fs`, `sdl2-asset`, and `suite`,
 `--gpu-mmu` selects `off` (default) or `on`. Each variant uses its own isolated
 runtime directory under `build/play-*`. See [the MMU reference](../reference/mmu.md),
 [the GPU HAL reference](../reference/gpu.md), and
