@@ -376,6 +376,8 @@ if(VFLASH_ENABLE_SDL2 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/SDL2/incl
         external/SDL2/src/audio/SDL_mixer.c
         external/SDL2/src/audio/SDL_wave.c
         src/graphics/sdl2_vflash/SDL_vflashaudio.c
+        src/platform/cd.c
+        src/platform/fs.c
     )
 
     add_library(SDL2 STATIC ${sdl2_sources})
@@ -493,5 +495,42 @@ if(VFLASH_ENABLE_SDL2 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/SDL2/incl
         endif()
         target_link_libraries(${sdl2_audio_target} PRIVATE -Wl,--start-group SDL2 gcc -Wl,--end-group)
         vflash_add_disc(sdl2_audio_${mmu}_disc_image ${sdl2_audio_target} audio/sdl2/${mmu})
+
+        set(sdl2_asset_target vflash_sdl2_asset_${mmu})
+        vflash_add_program(${sdl2_asset_target} firmware-disc.ld
+            examples/fs/asset_demo.c
+            src/platform/clock.c
+            ${sdl2_gpu_sources}
+        )
+        target_include_directories(${sdl2_asset_target} PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/include/sdl2_vflash"
+            "${CMAKE_CURRENT_SOURCE_DIR}/external/SDL2/include"
+        )
+        target_compile_definitions(${sdl2_asset_target} PRIVATE
+            DYNAPI_NEEDS_DLOPEN=1
+        )
+        if(mmu STREQUAL "on")
+            target_sources(${sdl2_asset_target} PRIVATE src/platform/mmu.c src/platform/mmu_arm926.S)
+            target_compile_definitions(${sdl2_asset_target} PRIVATE VFLASH_ENABLE_MMU=1)
+        endif()
+        target_link_libraries(${sdl2_asset_target} PRIVATE -Wl,--start-group SDL2 gcc -Wl,--end-group)
+        vflash_add_disc_with_assets(sdl2_asset_${mmu}_disc_image ${sdl2_asset_target} fs/sdl2/${mmu} "${CMAKE_CURRENT_SOURCE_DIR}/examples/fs/assets")
     endforeach()
 endif()
+
+foreach(mmu IN ITEMS off on)
+    set(fs_native_target vflash_fs_${mmu})
+    vflash_add_program(${fs_native_target} firmware-disc.ld
+        examples/fs/fs_demo.c
+        src/platform/cd.c
+        src/platform/fs.c
+        src/platform/clock.c
+    )
+    if(mmu STREQUAL "on")
+        target_sources(${fs_native_target} PRIVATE src/platform/mmu.c src/platform/mmu_arm926.S)
+        target_compile_definitions(${fs_native_target} PRIVATE VFLASH_ENABLE_MMU=1)
+    endif()
+    vflash_add_disc_with_assets(fs_${mmu}_disc_image ${fs_native_target} fs/native/${mmu} "${CMAKE_CURRENT_SOURCE_DIR}/examples/fs/assets")
+endforeach()
+
+

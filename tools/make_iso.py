@@ -14,7 +14,7 @@ from elf_image import read_bounded
 from inspect_boot import inspect
 
 
-def build_iso(boot, output):
+def build_iso(boot, output, assets_dir=None):
     data = read_bounded(boot)
     inspect(data)  # Only partial structural checks, NOT boot validation.
     output = Path(output).absolute()
@@ -30,6 +30,15 @@ def build_iso(boot, output):
         system = root / "0SYSTEM"
         system.mkdir(parents=True)
         (system / "BOOT.BIN").write_bytes(data)
+        if assets_dir:
+            assets = Path(assets_dir)
+            if assets.is_dir():
+                for item in sorted(assets.rglob("*")):
+                    if item.is_file():
+                        rel = item.relative_to(assets)
+                        dst = root / rel
+                        dst.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(item, dst)
         image = temp / "candidate.iso"
         command = [tool]
         if Path(tool).name == "xorriso":
@@ -47,9 +56,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("boot_bin", type=Path)
     parser.add_argument("output_iso", type=Path)
+    parser.add_argument("--assets-dir", type=Path, default=None, help="directory of extra assets to stage into disc root")
     args = parser.parse_args()
     try:
-        build_iso(args.boot_bin, args.output_iso)
+        build_iso(args.boot_bin, args.output_iso, args.assets_dir)
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
         print(f"ISO generation failed: {error}", file=sys.stderr)
         return 1

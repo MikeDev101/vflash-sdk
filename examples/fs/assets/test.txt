@@ -1,0 +1,2 @@
+Hello V.Flash ISO 9660 filesystem!
+This is a test text file read directly from optical CD-ROM.

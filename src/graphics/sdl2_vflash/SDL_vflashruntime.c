@@ -296,15 +296,82 @@ unsigned int time(void *t)
     return (unsigned int)SDL_GetTicks64();
 }
 
-/* Virtual asset loading for embedded test assets */
+/* Virtual asset loading for embedded test assets and V.Flash native disc filesystem */
 #include "SDL_rwops.h"
+#include "SDL_error.h"
 #include "icon_bmp.h"
+#include <vflash/fs.h>
 
 extern SDL_RWops *SDL_RWFromFile_Upstream(const char *file, const char *mode);
 
+static Sint64 SDLCALL vflash_rwops_size(SDL_RWops *context)
+{
+    if (!context) return -1;
+    int fd = (int)(intptr_t)context->hidden.unknown.data1;
+    return (Sint64)vflash_fs_size(fd);
+}
+
+static Sint64 SDLCALL vflash_rwops_seek(SDL_RWops *context, Sint64 offset, int whence)
+{
+    if (!context) return -1;
+    int fd = (int)(intptr_t)context->hidden.unknown.data1;
+    int fs_whence = SEEK_SET;
+    if (whence == RW_SEEK_SET) fs_whence = SEEK_SET;
+    else if (whence == RW_SEEK_CUR) fs_whence = SEEK_CUR;
+    else if (whence == RW_SEEK_END) fs_whence = SEEK_END;
+    else return -1;
+    return (Sint64)vflash_fs_seek(fd, (int32_t)offset, fs_whence);
+}
+
+static size_t SDLCALL vflash_rwops_read(SDL_RWops *context, void *ptr, size_t size, size_t maxnum)
+{
+    if (!context || !ptr || size == 0 || maxnum == 0) return 0;
+    int fd = (int)(intptr_t)context->hidden.unknown.data1;
+    size_t total_bytes = size * maxnum;
+    int32_t read_bytes = vflash_fs_read(fd, ptr, (uint32_t)total_bytes);
+    if (read_bytes <= 0) return 0;
+    return (size_t)read_bytes / size;
+}
+
+static size_t SDLCALL vflash_rwops_write(SDL_RWops *context, const void *ptr, size_t size, size_t num)
+{
+    (void)context; (void)ptr; (void)size; (void)num;
+    SDL_SetError("V.Flash disc filesystem is read-only");
+    return 0;
+}
+
+static int SDLCALL vflash_rwops_close(SDL_RWops *context)
+{
+    if (context) {
+        int fd = (int)(intptr_t)context->hidden.unknown.data1;
+        if (fd >= 0) {
+            vflash_fs_close(fd);
+        }
+        SDL_FreeRW(context);
+    }
+    return 0;
+}
+
 SDL_RWops *SDL_RWFromFile(const char *file, const char *mode)
 {
+    (void)mode;
     if (file) {
+        int fd = vflash_fs_open(file);
+        if (fd >= 0) {
+            SDL_RWops *rwops = SDL_AllocRW();
+            if (rwops) {
+                rwops->size = vflash_rwops_size;
+                rwops->seek = vflash_rwops_seek;
+                rwops->read = vflash_rwops_read;
+                rwops->write = vflash_rwops_write;
+                rwops->close = vflash_rwops_close;
+                rwops->type = SDL_RWOPS_UNKNOWN;
+                rwops->hidden.unknown.data1 = (void *)(intptr_t)fd;
+                return rwops;
+            }
+            vflash_fs_close(fd);
+        }
+
         size_t len = 0;
         while (file[len]) len++;
         if (len >= 8 &&
