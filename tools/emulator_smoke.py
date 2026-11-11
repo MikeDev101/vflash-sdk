@@ -20,7 +20,7 @@ from elf_image import RAM_START, RAM_END, read_bounded, read_elf
 
 ROOT = Path(__file__).resolve().parents[1]
 EXPECTED = {"boot_marker": 0x56464C53, "startup_status": 0x600D600D, "data_cookie": 0x13579BDF}
-SUITES = ("mmu-identity", "mmu-undefined", "input", "audio", "fs", "suite", "cpp")
+SUITES = ("mmu-identity", "mmu-undefined", "input", "audio", "fs", "suite", "cpp", "fmv")
 INPUT_SEQUENCE = (
     "0x1@450-500;0x2@520-570;0x4@590-640;0x8@660-710;"
     "0x10@730-780;0x20@800-850;0x40@870-920;0x80@940-990;0x100@1010-1060"
@@ -107,6 +107,11 @@ def run_suite(suite, emulator, bios, out):
             elf = ROOT / f"build/vflash_cpp_{mmu}.elf"
             disc = ROOT / f"build/cpp/{mmu}/homebrew.cue"
             extra = ["--frames", "500"]
+        elif suite == "fmv":
+            elf = ROOT / f"build/vflash_fmv_{mmu}.elf"
+            disc = ROOT / f"build/fmv/{mmu}/homebrew.cue"
+            seq = "0x100@470-490;0x100@510-530;0x10@550-565;0x20@580-595"
+            extra = ["--input", seq, "--frames", "650"]
         else:
             elf = ROOT / (f"build/vflash_fs_{mmu}.elf" if kind == "native" else f"build/vflash_sdl2_asset_{mmu}.elf")
             disc = ROOT / (f"build/fs/native/{mmu}/homebrew.cue" if kind == "native" else f"build/fs/sdl2/{mmu}/homebrew.cue")
@@ -148,6 +153,15 @@ def run_suite(suite, emulator, bios, out):
             assert word("cpp_dynamic_alloc_ok") == 1
             assert word("cpp_sdl2_frames") >= 20
             assert word("cpp_all_passed") == 1
+        elif suite == "fmv":
+            assert word("fmv_status") == 0x464D5631
+            assert word("fmv_video_opened") == 1
+            assert word("fmv_frames_decoded") >= 15
+            assert word("fmv_audio_samples") >= 1000
+            assert word("fmv_pause_tested") == 1
+            assert word("fmv_stop_tested") == 1
+            assert word("fmv_restart_tested") == 1
+            assert word("fmv_all_passed") == 1
         else:
             if kind == "native":
                 assert word("fs_demo_err") == 0 and word("fs_demo_tests_passed") == 8 and word("fs_demo_bytes_read") == 6308
@@ -161,10 +175,11 @@ def run_suite(suite, emulator, bios, out):
         "fs": ("fs_off_disc_image", "fs_on_disc_image", "sdl2_asset_off_disc_image", "sdl2_asset_on_disc_image"),
         "suite": ("suite_off_disc_image", "suite_on_disc_image"),
         "cpp": ("cpp_off_disc_image", "cpp_on_disc_image"),
+        "fmv": ("fmv_off_disc_image", "fmv_on_disc_image"),
     }[suite]
     subprocess.run(["cmake", "--build", str(ROOT / "build"), "--target", *suite_targets],
                    check=True, stdout=subprocess.DEVNULL)
-    kinds = ("unified",) if suite in ("suite", "cpp") else ("native", "sdl2")
+    kinds = ("unified",) if suite in ("suite", "cpp", "fmv") else ("native", "sdl2")
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
         futs = [pool.submit(run_variant, kind, mmu) for mmu in ("off", "on") for kind in kinds]
         for f in futs:

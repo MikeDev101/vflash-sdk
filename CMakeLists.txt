@@ -575,4 +575,27 @@ foreach(mmu IN ITEMS off on)
     vflash_add_disc_with_assets(fs_${mmu}_disc_image ${fs_native_target} fs/native/${mmu} "${CMAKE_CURRENT_SOURCE_DIR}/examples/fs/assets")
 endforeach()
 
+set(fmv_video_sources
+    src/platform/video_mjp.c
+    src/graphics/picojpeg.c
+    src/platform/cd.c
+    src/platform/fs.c
+    src/platform/clock.c
+)
+
+foreach(mmu IN ITEMS off on)
+    set(fmv_target vflash_fmv_${mmu})
+    vflash_add_program(${fmv_target} firmware-disc.ld
+        examples/fmv/main.c
+        ${fmv_video_sources}
+    )
+    if(mmu STREQUAL "on")
+        target_sources(${fmv_target} PRIVATE src/platform/mmu.c src/platform/mmu_arm926.S)
+        target_compile_definitions(${fmv_target} PRIVATE VFLASH_ENABLE_MMU=1)
+    endif()
+    target_link_libraries(${fmv_target} PRIVATE gcc)
+    vflash_add_disc_with_assets(fmv_${mmu}_disc_image ${fmv_target} fmv/${mmu} "${CMAKE_CURRENT_SOURCE_DIR}/examples/fmv/assets")
+endforeach()
+
+
 
