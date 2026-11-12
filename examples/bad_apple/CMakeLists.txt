@@ -7,6 +7,12 @@ set(bad_apple_sources
     ${CMAKE_SOURCE_DIR}/src/platform/loading.c
 )
 
+set_source_files_properties(
+    ${CMAKE_SOURCE_DIR}/src/platform/video_mjp.c
+    ${CMAKE_SOURCE_DIR}/src/graphics/picojpeg.c
+    PROPERTIES COMPILE_OPTIONS "-O3"
+)
+
 set(BAD_APPLE_PROFILE "256x192_15fps" CACHE STRING "Bad Apple video profile (e.g. 256x192_15fps, 320x240_10fps, 192x144_24fps, 160x120_30fps)")
 
 set(staged_assets_dir "${CMAKE_CURRENT_BINARY_DIR}/assets")

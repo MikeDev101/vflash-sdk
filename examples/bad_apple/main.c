@@ -107,19 +107,50 @@ static void setup_video_centering(vflash_video_player_t *player)
     player->dst_y = dst_y;
 }
 
+static void clear_letterbox_borders(vflash_framebuffer_t *fb, const vflash_video_player_t *player)
+{
+    if (player->dst_y > 0) {
+        /* Top letterbox */
+        draw_rect(fb, 0, 0, VFLASH_WIDTH, player->dst_y, 0x000000);
+        /* Bottom letterbox */
+        int bot_start = player->dst_y + (int)player->height;
+        if (bot_start < (int)VFLASH_HEIGHT) {
+            draw_rect(fb, 0, bot_start, VFLASH_WIDTH, (int)VFLASH_HEIGHT - bot_start, 0x000000);
+        }
+    }
+    if (player->dst_x > 0) {
+        /* Left pillarbox */
+        draw_rect(fb, 0, player->dst_y, player->dst_x, (int)player->height, 0x000000);
+        /* Right pillarbox */
+        int right_start = player->dst_x + (int)player->width;
+        if (right_start < (int)VFLASH_WIDTH) {
+            draw_rect(fb, right_start, player->dst_y, (int)VFLASH_WIDTH - right_start, (int)player->height, 0x000000);
+        }
+    }
+}
+
 static void draw_hud_overlay(vflash_framebuffer_t *fb, const vflash_video_stats_t *stats)
 {
-    if (!s_show_hud) return;
-
-    /* If video is smaller than screen (e.g. 256x192), render HUD cleanly in black letterbox borders */
-    int top_y = (s_player.dst_y >= 20) ? 2 : 2;
-    int bot_y = (s_player.dst_y >= 20) ? (VFLASH_HEIGHT - 20) : (VFLASH_HEIGHT - 32);
-
-    /* Semi-opaque/dark background boxes for HUD readability */
-    if (s_player.dst_y < 20) {
-        draw_rect(fb, 0, 0, VFLASH_WIDTH, 22, 0x081018);
-        draw_rect(fb, 0, VFLASH_HEIGHT - 24, VFLASH_WIDTH, 24, 0x081018);
+    if (!s_show_hud) {
+        clear_letterbox_borders(fb, &s_player);
+        return;
     }
+
+    /* Clean pillarbox bars on sides if video is narrower than screen */
+    if (s_player.dst_x > 0) {
+        draw_rect(fb, 0, 0, s_player.dst_x, VFLASH_HEIGHT, 0x000000);
+        int right_start = s_player.dst_x + (int)s_player.width;
+        if (right_start < (int)VFLASH_WIDTH) {
+            draw_rect(fb, right_start, 0, (int)VFLASH_WIDTH - right_start, VFLASH_HEIGHT, 0x000000);
+        }
+    }
+
+    int top_y = 2;
+    int bot_y = VFLASH_HEIGHT - 22;
+
+    /* Explicitly clear HUD background rectangles so text never overlaps or leaves phantom glyphs */
+    draw_rect(fb, 0, 0, VFLASH_WIDTH, 22, (s_player.dst_y >= 22) ? 0x000000 : 0x081018);
+    draw_rect(fb, 0, VFLASH_HEIGHT - 24, VFLASH_WIDTH, 24, (s_player.dst_y + (int)s_player.height <= VFLASH_HEIGHT - 24) ? 0x000000 : 0x081018);
 
     /* Top HUD: Title, Resolution, FPS, MMU */
     char line1[64] = "BAD APPLE!! ";
@@ -166,18 +197,60 @@ static void draw_hud_overlay(vflash_framebuffer_t *fb, const vflash_video_stats_
     draw_text(fb, 4, bot_y + 10, line4, 0xFFD700, 1);
 }
 
+static int find_next_profile(int from_idx, int step)
+{
+    for (int i = 1; i < (int)NUM_PROFILES; ++i) {
+        int idx = (from_idx + i * step + (int)NUM_PROFILES * 10) % (int)NUM_PROFILES;
+        int fd = vflash_fs_open(s_profile_files[idx]);
+        if (fd >= 0) {
+            vflash_fs_close(fd);
+            return idx;
+        }
+    }
+    return from_idx;
+}
+
 static bool load_profile(int profile_idx)
 {
     const char *path = s_profile_files[profile_idx];
+    int test_fd = vflash_fs_open(path);
+    if (test_fd < 0) {
+        return false;
+    }
+    vflash_fs_close(test_fd);
+
     if (s_player.fd >= 0) {
         vflash_video_close(&s_player);
     }
+
+    /* Stop audio and drain queued samples */
+    vflash_audio_pause(true);
+    vflash_audio_init(NULL);
+
+    /* Wipe BOTH front and back framebuffers completely to black (0x000000) */
+    vflash_framebuffer_t clear_fb;
+    if (vflash_video_backbuffer(&clear_fb)) {
+        draw_clear(&clear_fb, 0x000000);
+        vflash_video_present(&clear_fb);
+    }
+    if (vflash_video_backbuffer(&clear_fb)) {
+        draw_clear(&clear_fb, 0x000000);
+        vflash_video_present(&clear_fb);
+    }
+
     if (vflash_video_open(&s_player, path, 0, 0) != 0) {
         return false;
     }
     setup_video_centering(&s_player);
     s_player.loop = true;
     s_current_profile_idx = profile_idx;
+
+    /* Reset telemetry and frame pacing */
+    s_fps_frame_count = 0;
+    s_fps_whole = 0;
+    s_fps_frac = 0;
+    s_last_fps_ticks = vflash_clock_ticks();
+
     return true;
 }
 
@@ -325,9 +398,10 @@ void vflash_main(void)
             /* YELLOW: Toggle HUD */
             if (st->pressed & VFLASH_BTN_YELLOW) {
                 s_show_hud = !s_show_hud;
-                /* If turning HUD off, clear borders to erase HUD remnants */
-                if (!s_show_hud && vflash_video_backbuffer(&back_fb)) {
-                    draw_clear(&back_fb, 0x000000);
+                if (!s_show_hud) {
+                    if (vflash_video_backbuffer(&back_fb)) {
+                        clear_letterbox_borders(&back_fb, &s_player);
+                    }
                 }
             }
             /* BLUE: Return to loading screen demo */
@@ -349,14 +423,14 @@ void vflash_main(void)
             }
             /* D-Pad LEFT / RIGHT: Switch profile */
             if (st->pressed & VFLASH_BTN_LEFT) {
-                int next = (s_current_profile_idx - 1 + (int)NUM_PROFILES) % (int)NUM_PROFILES;
-                if (load_profile(next)) {
+                int next = find_next_profile(s_current_profile_idx, -1);
+                if (next != s_current_profile_idx && load_profile(next)) {
                     vflash_video_play(&s_player);
                 }
             }
             if (st->pressed & VFLASH_BTN_RIGHT) {
-                int next = (s_current_profile_idx + 1) % (int)NUM_PROFILES;
-                if (load_profile(next)) {
+                int next = find_next_profile(s_current_profile_idx, 1);
+                if (next != s_current_profile_idx && load_profile(next)) {
                     vflash_video_play(&s_player);
                 }
             }

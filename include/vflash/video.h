@@ -72,10 +72,10 @@ typedef struct vflash_video_player {
     /* Frame bitstream buffer */
     uint32_t chunk_buf_size;
     uint32_t chunk_buf_pos;
-    uint8_t chunk_buf[VFLASH_VIDEO_CHUNK_BUF_SIZE];
+    uint8_t chunk_buf[VFLASH_VIDEO_CHUNK_BUF_SIZE] __attribute__((aligned(4)));
 
     /* Audio scratch buffer */
-    int16_t audio_pcm_buf[2048];
+    int16_t audio_pcm_buf[2048] __attribute__((aligned(4)));
 } vflash_video_player_t;
 
 int vflash_video_open(vflash_video_player_t *player, const char *path, int x, int y);

@@ -23,6 +23,17 @@ static void fs_memcpy(void *dst, const void *src, uint32_t n)
 {
     uint8_t *d = (uint8_t *)dst;
     const uint8_t *s = (const uint8_t *)src;
+    if ((((uintptr_t)d | (uintptr_t)s) & 3u) == 0) {
+        uint32_t words = n >> 2;
+        uint32_t *dw = (uint32_t *)d;
+        const uint32_t *sw = (const uint32_t *)s;
+        while (words--) {
+            *dw++ = *sw++;
+        }
+        d = (uint8_t *)dw;
+        s = (const uint8_t *)sw;
+        n &= 3;
+    }
     while (n--) {
         *d++ = *s++;
     }

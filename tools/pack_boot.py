@@ -44,7 +44,7 @@ def main():
     args = parser.parse_args()
     try:
         result = pack_elf(read_bounded(args.elf))
-        with args.output.open("xb") as output:
+        with args.output.open("wb") as output:
             output.write(result)
         if args.verbose:
             print(f"{len(result)} bytes; load 0x{LOAD_BASE:08X}; entry stub +0x10; 512-byte padding")

@@ -69,6 +69,8 @@ def benchmark_profile(profile: str, mmu: str, frames: int = 400, bios: Path = No
     # Raw CD
     cue = disc_dir / "homebrew.cue"
     bin_file = disc_dir / "homebrew.bin"
+    cue.unlink(missing_ok=True)
+    bin_file.unlink(missing_ok=True)
     raw_cd_cmd = [sys.executable, str(ROOT / "tools/raw_cd.py"), str(iso), str(cue)]
     subprocess.run(raw_cd_cmd, check=True)
 

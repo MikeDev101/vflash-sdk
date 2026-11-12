@@ -59,6 +59,17 @@ static uint32_t decode_adpcm_chunk(const uint8_t *input, uint32_t in_size,
     return out_count;
 }
 
+static inline uint16_t rgb_to_bgr555(uint8_t r, uint8_t g, uint8_t b) {
+    return (uint16_t)(((r >> 3) & 0x1F) |
+                      (((g >> 3) & 0x1F) << 5) |
+                      (((b >> 3) & 0x1F) << 10));
+}
+
+static inline uint16_t gray_to_bgr555(uint8_t y) {
+    uint16_t v = (y >> 3) & 0x1F;
+    return (uint16_t)(v | (v << 5) | (v << 10));
+}
+
 static unsigned char pjpeg_stream_callback(unsigned char *pBuf, unsigned char buf_size,
                                            unsigned char *pBytes_actually_read, void *pCallback_data) {
     vflash_video_player_t *player = (vflash_video_player_t *)pCallback_data;
@@ -66,13 +77,11 @@ static unsigned char pjpeg_stream_callback(unsigned char *pBuf, unsigned char bu
     uint32_t to_read = buf_size;
     if (to_read > available) to_read = available;
 
-    for (uint32_t i = 0; i < to_read; i++) {
-        uint32_t stream_pos = player->chunk_buf_pos + i;
-        uint32_t disc_pos = stream_pos ^ 1;
-        pBuf[i] = (disc_pos < player->chunk_buf_size) ? player->chunk_buf[disc_pos] : 0;
+    if (to_read > 0) {
+        memcpy(pBuf, player->chunk_buf + player->chunk_buf_pos, to_read);
+        player->chunk_buf_pos += to_read;
     }
 
-    player->chunk_buf_pos += to_read;
     *pBytes_actually_read = (unsigned char)to_read;
     return 0;
 }
@@ -97,42 +106,134 @@ static int decode_and_render_frame(vflash_video_player_t *player, vflash_framebu
                         int base_y = player->dst_y + mcu_y * 16 + sb_y * 8;
                         int blk_offset = (sb_y * 2 + sb_x) * 64;
 
-                        for (int py = 0; py < 8; py++) {
-                            int fy = base_y + py;
-                            if (fy < 0 || fy >= (int)fb->height) continue;
-                            uint16_t *line = fb->pixels + fy * fb->stride;
-                            int src_row = blk_offset + py * 8;
+                        if (base_x >= 0 && base_x + 8 <= (int)fb->width && ((base_x & 1) == 0)) {
+                            for (int py = 0; py < 8; py++) {
+                                int fy = base_y + py;
+                                if (fy < 0 || fy >= (int)fb->height) continue;
+                                uint32_t *dst32 = (uint32_t *)(fb->pixels + fy * fb->stride + base_x);
+                                int src_row = blk_offset + py * 8;
+                                const uint8_t *r = info.m_pMCUBufR + src_row;
+                                const uint8_t *g = info.m_pMCUBufG + src_row;
+                                const uint8_t *b = info.m_pMCUBufB + src_row;
 
-                            for (int px = 0; px < 8; px++) {
-                                int fx = base_x + px;
-                                if (fx < 0 || fx >= (int)fb->width) continue;
-                                uint8_t r = info.m_pMCUBufR[src_row + px];
-                                uint8_t g = info.m_pMCUBufG[src_row + px];
-                                uint8_t b = info.m_pMCUBufB[src_row + px];
-                                line[fx] = (uint16_t)(((r >> 3) & 0x1F) |
-                                                      (((g >> 3) & 0x1F) << 5) |
-                                                      (((b >> 3) & 0x1F) << 10));
+                                uint32_t c0 = rgb_to_bgr555(r[0], g[0], b[0]);
+                                uint32_t c1 = rgb_to_bgr555(r[1], g[1], b[1]);
+                                dst32[0] = c0 | (c1 << 16);
+
+                                uint32_t c2 = rgb_to_bgr555(r[2], g[2], b[2]);
+                                uint32_t c3 = rgb_to_bgr555(r[3], g[3], b[3]);
+                                dst32[1] = c2 | (c3 << 16);
+
+                                uint32_t c4 = rgb_to_bgr555(r[4], g[4], b[4]);
+                                uint32_t c5 = rgb_to_bgr555(r[5], g[5], b[5]);
+                                dst32[2] = c4 | (c5 << 16);
+
+                                uint32_t c6 = rgb_to_bgr555(r[6], g[6], b[6]);
+                                uint32_t c7 = rgb_to_bgr555(r[7], g[7], b[7]);
+                                dst32[3] = c6 | (c7 << 16);
+                            }
+                        } else {
+                            for (int py = 0; py < 8; py++) {
+                                int fy = base_y + py;
+                                if (fy < 0 || fy >= (int)fb->height) continue;
+                                uint16_t *line = fb->pixels + fy * fb->stride;
+                                int src_row = blk_offset + py * 8;
+
+                                for (int px = 0; px < 8; px++) {
+                                    int fx = base_x + px;
+                                    if (fx < 0 || fx >= (int)fb->width) continue;
+                                    uint8_t r = info.m_pMCUBufR[src_row + px];
+                                    uint8_t g = info.m_pMCUBufG[src_row + px];
+                                    uint8_t b = info.m_pMCUBufB[src_row + px];
+                                    line[fx] = rgb_to_bgr555(r, g, b);
+                                }
                             }
                         }
                     }
                 }
-            } else if (info.m_scanType == PJPG_YH1V1 || info.m_scanType == PJPG_GRAYSCALE) {
+            } else if (info.m_scanType == PJPG_GRAYSCALE) {
                 int base_x = player->dst_x + mcu_x * 8;
                 int base_y = player->dst_y + mcu_y * 8;
-                for (int py = 0; py < 8; py++) {
-                    int fy = base_y + py;
-                    if (fy < 0 || fy >= (int)fb->height) continue;
-                    uint16_t *line = fb->pixels + fy * fb->stride;
-                    int src_row = py * 8;
-                    for (int px = 0; px < 8; px++) {
-                        int fx = base_x + px;
-                        if (fx < 0 || fx >= (int)fb->width) continue;
-                        uint8_t r = info.m_pMCUBufR[src_row + px];
-                        uint8_t g = info.m_pMCUBufG ? info.m_pMCUBufG[src_row + px] : r;
-                        uint8_t b = info.m_pMCUBufB ? info.m_pMCUBufB[src_row + px] : r;
-                        line[fx] = (uint16_t)(((r >> 3) & 0x1F) |
-                                              (((g >> 3) & 0x1F) << 5) |
-                                              (((b >> 3) & 0x1F) << 10));
+                if (base_x >= 0 && base_x + 8 <= (int)fb->width && ((base_x & 1) == 0)) {
+                    for (int py = 0; py < 8; py++) {
+                        int fy = base_y + py;
+                        if (fy < 0 || fy >= (int)fb->height) continue;
+                        uint32_t *dst32 = (uint32_t *)(fb->pixels + fy * fb->stride + base_x);
+                        int src_row = py * 8;
+                        const uint8_t *r = info.m_pMCUBufR + src_row;
+
+                        uint32_t c0 = gray_to_bgr555(r[0]);
+                        uint32_t c1 = gray_to_bgr555(r[1]);
+                        dst32[0] = c0 | (c1 << 16);
+
+                        uint32_t c2 = gray_to_bgr555(r[2]);
+                        uint32_t c3 = gray_to_bgr555(r[3]);
+                        dst32[1] = c2 | (c3 << 16);
+
+                        uint32_t c4 = gray_to_bgr555(r[4]);
+                        uint32_t c5 = gray_to_bgr555(r[5]);
+                        dst32[2] = c4 | (c5 << 16);
+
+                        uint32_t c6 = gray_to_bgr555(r[6]);
+                        uint32_t c7 = gray_to_bgr555(r[7]);
+                        dst32[3] = c6 | (c7 << 16);
+                    }
+                } else {
+                    for (int py = 0; py < 8; py++) {
+                        int fy = base_y + py;
+                        if (fy < 0 || fy >= (int)fb->height) continue;
+                        uint16_t *line = fb->pixels + fy * fb->stride;
+                        int src_row = py * 8;
+                        for (int px = 0; px < 8; px++) {
+                            int fx = base_x + px;
+                            if (fx < 0 || fx >= (int)fb->width) continue;
+                            line[fx] = gray_to_bgr555(info.m_pMCUBufR[src_row + px]);
+                        }
+                    }
+                }
+            } else if (info.m_scanType == PJPG_YH1V1) {
+                int base_x = player->dst_x + mcu_x * 8;
+                int base_y = player->dst_y + mcu_y * 8;
+                if (base_x >= 0 && base_x + 8 <= (int)fb->width && ((base_x & 1) == 0)) {
+                    for (int py = 0; py < 8; py++) {
+                        int fy = base_y + py;
+                        if (fy < 0 || fy >= (int)fb->height) continue;
+                        uint32_t *dst32 = (uint32_t *)(fb->pixels + fy * fb->stride + base_x);
+                        int src_row = py * 8;
+                        const uint8_t *r = info.m_pMCUBufR + src_row;
+                        const uint8_t *g = info.m_pMCUBufG + src_row;
+                        const uint8_t *b = info.m_pMCUBufB + src_row;
+
+                        uint32_t c0 = rgb_to_bgr555(r[0], g[0], b[0]);
+                        uint32_t c1 = rgb_to_bgr555(r[1], g[1], b[1]);
+                        dst32[0] = c0 | (c1 << 16);
+
+                        uint32_t c2 = rgb_to_bgr555(r[2], g[2], b[2]);
+                        uint32_t c3 = rgb_to_bgr555(r[3], g[3], b[3]);
+                        dst32[1] = c2 | (c3 << 16);
+
+                        uint32_t c4 = rgb_to_bgr555(r[4], g[4], b[4]);
+                        uint32_t c5 = rgb_to_bgr555(r[5], g[5], b[5]);
+                        dst32[2] = c4 | (c5 << 16);
+
+                        uint32_t c6 = rgb_to_bgr555(r[6], g[6], b[6]);
+                        uint32_t c7 = rgb_to_bgr555(r[7], g[7], b[7]);
+                        dst32[3] = c6 | (c7 << 16);
+                    }
+                } else {
+                    for (int py = 0; py < 8; py++) {
+                        int fy = base_y + py;
+                        if (fy < 0 || fy >= (int)fb->height) continue;
+                        uint16_t *line = fb->pixels + fy * fb->stride;
+                        int src_row = py * 8;
+                        for (int px = 0; px < 8; px++) {
+                            int fx = base_x + px;
+                            if (fx < 0 || fx >= (int)fb->width) continue;
+                            uint8_t r = info.m_pMCUBufR[src_row + px];
+                            uint8_t g = info.m_pMCUBufG ? info.m_pMCUBufG[src_row + px] : r;
+                            uint8_t b = info.m_pMCUBufB ? info.m_pMCUBufB[src_row + px] : r;
+                            line[fx] = rgb_to_bgr555(r, g, b);
+                        }
                     }
                 }
             }
@@ -329,7 +430,18 @@ int vflash_video_update(vflash_video_player_t *player, vflash_framebuffer_t *fb)
             }
             continue;
         } else if (chunk_hdr[0] == '0' && chunk_hdr[1] == '0' && chunk_hdr[2] == 'd' && chunk_hdr[3] == 'c') {
-            /* Video frame chunk */
+            /* Video frame chunk: in-place 16-bit word pairwise byte-swap for JPEG bitstream */
+            uint32_t words = chunk_size >> 2;
+            uint32_t *wptr = (uint32_t *)player->chunk_buf;
+            for (uint32_t i = 0; i < words; ++i) {
+                uint32_t v = wptr[i];
+                wptr[i] = ((v & 0x00FF00FFu) << 8) | ((v & 0xFF00FF00u) >> 8);
+            }
+            if (chunk_size & 2) {
+                uint8_t *bptr = player->chunk_buf + (words << 2);
+                uint8_t tmp = bptr[0]; bptr[0] = bptr[1]; bptr[1] = tmp;
+            }
+
             player->chunk_buf_size = chunk_size;
             player->chunk_buf_pos = 0;
 
@@ -360,7 +472,14 @@ int vflash_video_close(vflash_video_player_t *player) {
         vflash_fs_close(player->fd);
         player->fd = -1;
     }
+    if (player->audio_enabled) {
+        vflash_audio_pause(true);
+        player->audio_enabled = false;
+    }
     player->state = VFLASH_VIDEO_STOPPED;
+    player->chunk_buf_size = 0;
+    player->chunk_buf_pos = 0;
+    player->tick_accumulator = 0;
     return 0;
 }
 
