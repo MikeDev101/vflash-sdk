@@ -97,12 +97,12 @@ def run_suite(suite, emulator, bios, out):
             disc = ROOT / f"build/suite/{mmu}/homebrew.cue"
             seq = (
                 "0x100@440-450;"
-                "0x100@720-735;"
-                "0x1@760-775;0x100@795-805;0x80@825-865;"
-                "0x1@890-905;0x100@925-935;0x80@955-985;"
-                "0x1@1010-1025;0x100@1045-1055"
+                "0x100@1020-1035;"
+                "0x1@1060-1075;0x100@1095-1105;0x80@1135-1175;"
+                "0x1@1205-1220;0x100@1240-1250;0x80@1280-1320;"
+                "0x1@1350-1365;0x100@1385-1395"
             )
-            extra = ["--input", seq, "--frames", "1090"]
+            extra = ["--input", seq, "--frames", "1440"]
         elif suite == "cpp":
             elf = ROOT / f"build/vflash_cpp_{mmu}.elf"
             disc = ROOT / f"build/cpp/{mmu}/homebrew.cue"
@@ -143,9 +143,9 @@ def run_suite(suite, emulator, bios, out):
                 assert word("sdl2_audio_active") == 1 and word("sdl2_audio_callback_calls") >= 10 and word("sdl2_audio_samples_played") >= 1000
         elif suite == "suite":
             assert word("suite_status") == 0x50415353
-            assert word("suite_tests_run") == 6 and word("suite_tests_passed") == 6 and word("suite_tests_failed") == 0
-            assert word("suite_results_mask") == 0x3F and word("suite_done_mask") == 0x3F
-            assert word("suite_diag_visited_mask") == 0x7 and word("suite_current_test") == 7
+            assert word("suite_tests_run") == 8 and word("suite_tests_passed") == 8 and word("suite_tests_failed") == 0
+            assert word("suite_results_mask") == 0xFF and word("suite_done_mask") == 0xFF
+            assert word("suite_diag_visited_mask") == 0x7 and word("suite_current_test") == 9
         elif suite == "cpp":
             assert word("cpp_global_ctor_runs") == 1
             assert word("cpp_virtual_calls") >= 10

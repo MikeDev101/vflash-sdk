@@ -522,6 +522,8 @@ if(VFLASH_ENABLE_SDL2 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/SDL2/incl
             src/platform/clock.c
             src/platform/mmu.c
             src/platform/mmu_arm926.S
+            src/platform/video_mjp.c
+            src/graphics/picojpeg.c
             ${sdl2_gpu_sources}
         )
         target_include_directories(${suite_target} PRIVATE

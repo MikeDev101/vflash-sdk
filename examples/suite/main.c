@@ -31,6 +31,8 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "duck_sprite.h"
+
 #define REG(a) (*(volatile uint32_t *)(uintptr_t)(a))
 
 /* Standard SDK verification telemetry symbols */
@@ -41,13 +43,13 @@ volatile uint32_t video_status;
 volatile uint32_t render_status;
 
 /* Unified suite verification symbols for automated smoke testing */
-volatile uint32_t suite_status = 0;         /* 0x53554954 ("SUIT") when ready, 0x50415353 ("PASS") when all 6 pass */
-volatile uint32_t suite_current_test = 0;   /* 0 = menu, 1..6 = automated test index, 7..9 = interactive diag */
+volatile uint32_t suite_status = 0;         /* 0x53554954 ("SUIT") when ready, 0x50415353 ("PASS") when all pass */
+volatile uint32_t suite_current_test = 0;   /* 0 = menu, 1..8 = automated test index, 9..11 = interactive diag */
 volatile uint32_t suite_tests_run = 0;
 volatile uint32_t suite_tests_passed = 0;
 volatile uint32_t suite_tests_failed = 0;
-volatile uint32_t suite_results_mask = 0;   /* Bit i (0..5) set when test (i+1) passes */
-volatile uint32_t suite_done_mask = 0;      /* Bit i (0..5) set when test (i+1) has executed */
+volatile uint32_t suite_results_mask = 0;   /* Bit i (0..7) set when test (i+1) passes */
+volatile uint32_t suite_done_mask = 0;      /* Bit i (0..7) set when test (i+1) has executed */
 volatile uint32_t suite_mmu_control = 0;
 volatile uint32_t suite_menu_cursor = 0;
 volatile uint32_t suite_diag_visited_mask = 0;
@@ -96,8 +98,8 @@ static uint16_t sdl_bmp_rgb555[64 * 64] __attribute__((aligned(64)));
 #define COL_MAGENTA     0xE040FBu
 #define COL_ORANGE      0xFF9100u
 
-#define SUITE_TEST_COUNT       6
-#define MENU_ITEM_COUNT        10
+#define SUITE_TEST_COUNT       8
+#define MENU_ITEM_COUNT        12
 #define INPUT_EXIT_HOLD_FRAMES 45u
 
 static const char *const menu_labels[MENU_ITEM_COUNT] = {
@@ -108,9 +110,11 @@ static const char *const menu_labels[MENU_ITEM_COUNT] = {
     "4. Zevio 3D Rotating Cube",
     "5. Optical Disc & ISO 9660 FS",
     "6. Upstream SDL2 Asset & I/O",
-    "7. Input Diagnostic Menu",
-    "8. RAM & Memory Inspector",
-    "9. Sound & PCM Audio Menu"
+    "7. Motion JPEG (MJP) FMV Video",
+    "8. Sprite Move/Flip/Scale Test",
+    "9. Input Diagnostic Menu",
+    "10. RAM & Memory Inspector",
+    "11. Sound & PCM Audio Menu"
 };
 
 static const char *const stage_short_names[SUITE_TEST_COUNT] = {
@@ -119,7 +123,9 @@ static const char *const stage_short_names[SUITE_TEST_COUNT] = {
     "3. Zevio 2D GPU Blit",
     "4. Zevio 3D Cube",
     "5. ISO 9660 Disc FS",
-    "6. SDL2 Asset & I/O"
+    "6. SDL2 Asset & I/O",
+    "7. MJP FMV Video",
+    "8. Sprite Move/Scale"
 };
 
 static char suite_stage_notes[SUITE_TEST_COUNT][40];
@@ -1515,6 +1521,419 @@ static bool run_test_sdl2_assets(vflash_framebuffer_t *fb, bool batch_mode)
     return all_ok;
 }
 
+/* --- Test 7: Motion JPEG (MJP) FMV Playback --- */
+
+static vflash_video_player_t s_fmv_player;
+
+static bool run_test_fmv(vflash_framebuffer_t *fb, bool batch_mode)
+{
+    suite_current_test = 7;
+    bgm_stop();
+
+    int rc = vflash_video_open(&s_fmv_player, "DISC.MJP", 48, 28);
+    if (rc != 0) {
+        rc = vflash_video_open(&s_fmv_player, "disc.mjp", 48, 28);
+    }
+    if (rc != 0) {
+        set_stage_note(7, "FAIL: Open DISC.MJP failed");
+        bgm_start();
+        return false;
+    }
+
+    vflash_video_play(&s_fmv_player);
+
+    const uint32_t total_frames = 20;
+    bool ok = true;
+
+    if (batch_mode) {
+        for (uint32_t f = 0; f < total_frames; ++f) {
+            if (check_abort_to_menu()) {
+                vflash_video_close(&s_fmv_player);
+                bgm_start();
+                return true;
+            }
+
+            vflash_video_backbuffer(fb);
+            draw_test_hud(fb, 7, "MJP FMV PLAYBACK", f + 1, total_frames, batch_mode);
+            draw_box_border(fb, 8, 30, 304, 188, COL_PANEL, COL_BORDER);
+
+            vflash_video_update(&s_fmv_player, fb);
+
+            /* Telemetry inside HUD */
+            font_draw_string(fb, 16, 172, "Video Res   :", COL_GRAY, COL_PANEL);
+            draw_u32_dec(fb, 120, 172, s_fmv_player.width, COL_WHITE, COL_PANEL);
+            font_draw_string(fb, 144, 172, "x", COL_GRAY, COL_PANEL);
+            draw_u32_dec(fb, 156, 172, s_fmv_player.height, COL_WHITE, COL_PANEL);
+
+            font_draw_string(fb, 16, 186, "Decoded/FPS :", COL_GRAY, COL_PANEL);
+            draw_u32_dec(fb, 120, 186, s_fmv_player.current_frame, COL_GREEN, COL_PANEL);
+            font_draw_string(fb, 144, 186, "/", COL_GRAY, COL_PANEL);
+            draw_u32_dec(fb, 156, 186, s_fmv_player.fps, COL_CYAN, COL_PANEL);
+
+            font_draw_string(fb, 16, 200, "Audio Queue :", COL_GRAY, COL_PANEL);
+            draw_u32_dec(fb, 120, 200, s_fmv_player.audio_samples_queued, COL_YELLOW, COL_PANEL);
+            font_draw_string(fb, 180, 200, "Decode us:", COL_GRAY, COL_PANEL);
+            draw_u32_dec(fb, 250, 200, s_fmv_player.last_decode_time_us, COL_WHITE, COL_PANEL);
+
+            vflash_video_present(fb);
+            suite_frames++;
+        }
+
+        ok = (s_fmv_player.current_frame >= 10);
+        vflash_video_close(&s_fmv_player);
+        set_stage_note(7, ok ? "MJP 320x192 @24fps + S16LE Audio OK" : "FAIL: MJP decode error");
+        bgm_start();
+        return ok;
+    }
+
+    /* Interactive mode */
+    while (1) {
+        vflash_input_poll();
+        const vflash_input_state_t *st = vflash_input_get_state();
+
+        if (vflash_input_is_pressed(st, VFLASH_BTN_OK | VFLASH_BTN_BLUE | VFLASH_BTN_EXIT)) {
+            break;
+        }
+
+        if (vflash_input_is_pressed(st, VFLASH_BTN_RED)) {
+            if (s_fmv_player.state == VFLASH_VIDEO_PLAYING) {
+                vflash_video_pause(&s_fmv_player);
+            } else if (s_fmv_player.state == VFLASH_VIDEO_PAUSED) {
+                vflash_video_play(&s_fmv_player);
+            }
+        }
+        if (vflash_input_is_pressed(st, VFLASH_BTN_GREEN)) {
+            vflash_video_restart(&s_fmv_player);
+        }
+
+        vflash_video_backbuffer(fb);
+        draw_clear(fb, COL_BG);
+
+        /* Top Banner */
+        draw_rect(fb, 0, 0, 320, 22, COL_HEADER);
+        draw_rect(fb, 0, 21, 320, 1, COL_BORDER);
+        font_draw_string(fb, 8, 6, "MJP MOTION JPEG VIDEO PLAYER", COL_CYAN, COL_HEADER);
+
+        const char *st_str = "STOPPED";
+        uint32_t st_col = COL_RED;
+        if (s_fmv_player.state == VFLASH_VIDEO_PLAYING) { st_str = "PLAYING"; st_col = COL_GREEN; }
+        else if (s_fmv_player.state == VFLASH_VIDEO_PAUSED) { st_str = "PAUSED"; st_col = COL_YELLOW; }
+        else if (s_fmv_player.state == VFLASH_VIDEO_FINISHED) { st_str = "FINISHED"; st_col = COL_CYAN; }
+        font_draw_string(fb, 230, 6, st_str, st_col, COL_HEADER);
+
+        vflash_video_update(&s_fmv_player, fb);
+
+        /* Lower Telemetry Box */
+        draw_box_border(fb, 8, 174, 304, 46, COL_PANEL, COL_BORDER);
+        font_draw_string(fb, 16, 178, "Frame:", COL_GRAY, COL_PANEL);
+        draw_u32_dec(fb, 64, 178, s_fmv_player.current_frame, COL_GREEN, COL_PANEL);
+        font_draw_string(fb, 94, 178, "/", COL_GRAY, COL_PANEL);
+        draw_u32_dec(fb, 104, 178, s_fmv_player.frame_count, COL_WHITE, COL_PANEL);
+
+        font_draw_string(fb, 160, 178, "Format:", COL_GRAY, COL_PANEL);
+        draw_u32_dec(fb, 214, 178, s_fmv_player.width, COL_CYAN, COL_PANEL);
+        font_draw_string(fb, 238, 178, "x", COL_GRAY, COL_PANEL);
+        draw_u32_dec(fb, 248, 178, s_fmv_player.height, COL_CYAN, COL_PANEL);
+
+        font_draw_string(fb, 16, 192, "Audio Samples:", COL_GRAY, COL_PANEL);
+        draw_u32_dec(fb, 114, 192, s_fmv_player.audio_samples_queued, COL_YELLOW, COL_PANEL);
+        font_draw_string(fb, 180, 192, "Decode us:", COL_GRAY, COL_PANEL);
+        draw_u32_dec(fb, 250, 192, s_fmv_player.last_decode_time_us, COL_WHITE, COL_PANEL);
+
+        /* Footer */
+        draw_rect(fb, 0, 224, 320, 16, COL_HEADER);
+        font_draw_string(fb, 8, 228, "[RED] Pause/Play  [GRN] Restart  [OK/BLUE] Menu", COL_YELLOW, COL_HEADER);
+
+        vflash_video_present(fb);
+        suite_frames++;
+    }
+
+    vflash_video_close(&s_fmv_player);
+    bgm_start();
+    return true;
+}
+
+/* --- Test 8: Sprite Movement, Flipping, and Scaling with User Input Control --- */
+
+static uint16_t s_duck_ram_pixels[DUCK_SPRITE_W * DUCK_SPRITE_H] __attribute__((aligned(16)));
+static bool s_duck_loaded = false;
+
+static void ensure_duck_sprite_loaded(void)
+{
+    if (s_duck_loaded) return;
+
+    /* Attempt loading 64x64 duck.bmp from disc */
+    SDL_Surface *surf = SDL_LoadBMP("duck.bmp");
+    if (!surf) surf = SDL_LoadBMP("DUCK.BMP");
+    if (surf) {
+        SDL_Surface *bgr = SDL_ConvertSurfaceFormat(surf, SDL_PIXELFORMAT_BGR555, 0);
+        if (bgr && bgr->w == DUCK_SPRITE_W && bgr->h == DUCK_SPRITE_H) {
+            memcpy(s_duck_ram_pixels, bgr->pixels, sizeof(s_duck_ram_pixels));
+            s_duck_loaded = true;
+        }
+        if (bgr) SDL_FreeSurface(bgr);
+        SDL_FreeSurface(surf);
+    }
+    if (!s_duck_loaded) {
+        /* Fallback to embedded BGR555 asset */
+        memcpy(s_duck_ram_pixels, s_duck_sprite_pixels, sizeof(s_duck_ram_pixels));
+        s_duck_loaded = true;
+    }
+}
+
+static void draw_sprite_transformed(vflash_framebuffer_t *fb,
+                                    const uint16_t *src_pixels,
+                                    uint32_t src_w, uint32_t src_h,
+                                    int32_t dst_x, int32_t dst_y,
+                                    int32_t dst_w, int32_t dst_h,
+                                    bool h_flip, bool v_flip,
+                                    bool use_color_key, uint16_t color_key,
+                                    int32_t clip_x0, int32_t clip_y0,
+                                    int32_t clip_x1, int32_t clip_y1)
+{
+    if (!fb || !fb->pixels || !src_pixels || dst_w <= 0 || dst_h <= 0) return;
+
+    if (clip_x0 < 0) clip_x0 = 0;
+    if (clip_y0 < 0) clip_y0 = 0;
+    if (clip_x1 > (int32_t)fb->width) clip_x1 = (int32_t)fb->width;
+    if (clip_y1 > (int32_t)fb->height) clip_y1 = (int32_t)fb->height;
+
+    int32_t start_dy = 0;
+    int32_t end_dy = dst_h;
+    if (dst_y < clip_y0) start_dy = clip_y0 - dst_y;
+    if (dst_y + end_dy > clip_y1) end_dy = clip_y1 - dst_y;
+
+    int32_t start_dx = 0;
+    int32_t end_dx = dst_w;
+    if (dst_x < clip_x0) start_dx = clip_x0 - dst_x;
+    if (dst_x + end_dx > clip_x1) end_dx = clip_x1 - dst_x;
+
+    for (int32_t dy = start_dy; dy < end_dy; ++dy) {
+        int32_t py = dst_y + dy;
+        uint16_t *row = &fb->pixels[(uint32_t)py * fb->stride];
+
+        uint32_t sy = v_flip ? ((uint32_t)(dst_h - 1 - dy) * src_h) / (uint32_t)dst_h
+                             : ((uint32_t)dy * src_h) / (uint32_t)dst_h;
+        if (sy >= src_h) sy = src_h - 1;
+        const uint16_t *src_row = &src_pixels[sy * src_w];
+
+        for (int32_t dx = start_dx; dx < end_dx; ++dx) {
+            uint32_t sx = h_flip ? ((uint32_t)(dst_w - 1 - dx) * src_w) / (uint32_t)dst_w
+                                 : ((uint32_t)dx * src_w) / (uint32_t)dst_w;
+            if (sx >= src_w) sx = src_w - 1;
+
+            uint16_t p = src_row[sx];
+            if (use_color_key && p == color_key) {
+                continue;
+            }
+            row[dst_x + dx] = p;
+        }
+    }
+}
+
+static bool run_test_sprite_control(vflash_framebuffer_t *fb, bool batch_mode)
+{
+    suite_current_test = 8;
+    ensure_duck_sprite_loaded();
+
+    static const uint32_t scale_sizes[6] = { 32, 48, 64, 80, 96, 128 };
+    static const char *const scale_labels[6] = { "0.5x (32x32)", "0.75x (48x48)", "1.0x (64x64)", "1.25x (80x80)", "1.5x (96x96)", "2.0x (128x128)" };
+
+    int32_t spr_x = 128;
+    int32_t spr_y = 60;
+    uint32_t scale_idx = 2; /* 1.0x (64x64) */
+    bool h_flip = false;
+    bool v_flip = false;
+    bool use_color_key = true;
+    uint32_t hold_frames = 0;
+
+    const uint32_t total_frames = 20;
+
+    if (batch_mode) {
+        for (uint32_t f = 0; f < total_frames; ++f) {
+            if (check_abort_to_menu()) return true;
+
+            /* Scripted transformation for automated verification */
+            spr_x = 120 + (int32_t)(f * 2);
+            spr_y = 50 + (int32_t)f;
+            h_flip = (f >= 5 && f < 15);
+            v_flip = (f >= 10);
+            scale_idx = (f >= 15) ? 4 : 2;
+
+            int32_t cur_sz = (int32_t)scale_sizes[scale_idx];
+
+            vflash_video_backbuffer(fb);
+            draw_test_hud(fb, 8, "SPRITE MOVE/FLIP/SCALE", f + 1, total_frames, batch_mode);
+            draw_box_border(fb, 8, 30, 304, 188, COL_PANEL, COL_BORDER);
+
+            /* Viewport background: subtle checkerboard */
+            for (int32_t cy = 34; cy < 174; cy += 14) {
+                for (int32_t cx = 12; cx < 304; cx += 14) {
+                    uint32_t col = (((cx ^ cy) >> 4) & 1) ? 0x0E1420u : 0x141E2Eu;
+                    draw_rect(fb, cx, cy, 14, 14, col);
+                }
+            }
+
+            draw_sprite_transformed(fb, s_duck_ram_pixels, DUCK_SPRITE_W, DUCK_SPRITE_H,
+                                    spr_x, spr_y, cur_sz, cur_sz,
+                                    h_flip, v_flip, use_color_key, DUCK_COLOR_KEY,
+                                    12, 34, 304, 174);
+
+            /* Telemetry inside viewport */
+            font_draw_string(fb, 16, 178, "Position :", COL_GRAY, COL_PANEL);
+            draw_i16_dec(fb, 88, 178, (int16_t)spr_x, COL_WHITE, COL_PANEL);
+            font_draw_string(fb, 120, 178, ",", COL_GRAY, COL_PANEL);
+            draw_i16_dec(fb, 128, 178, (int16_t)spr_y, COL_WHITE, COL_PANEL);
+
+            font_draw_string(fb, 168, 178, "Scale:", COL_GRAY, COL_PANEL);
+            font_draw_string(fb, 212, 178, scale_labels[scale_idx], COL_CYAN, COL_PANEL);
+
+            font_draw_string(fb, 16, 194, "H-Flip   :", COL_GRAY, COL_PANEL);
+            font_draw_string(fb, 88, 194, h_flip ? "ON " : "OFF", h_flip ? COL_GREEN : COL_DIM, COL_PANEL);
+
+            font_draw_string(fb, 128, 194, "V-Flip:", COL_GRAY, COL_PANEL);
+            font_draw_string(fb, 176, 194, v_flip ? "ON " : "OFF", v_flip ? COL_GREEN : COL_DIM, COL_PANEL);
+
+            font_draw_string(fb, 214, 194, "Key:", COL_GRAY, COL_PANEL);
+            font_draw_string(fb, 246, 194, use_color_key ? "ON " : "OFF", use_color_key ? COL_YELLOW : COL_DIM, COL_PANEL);
+
+            vflash_video_present(fb);
+            suite_frames++;
+            bgm_tick();
+        }
+
+        set_stage_note(8, "64x64 Duck Move/H-Flip/V-Flip/Scale OK");
+        return true;
+    }
+
+    /* Interactive mode with full user gamepad control */
+    while (1) {
+        vflash_input_poll();
+        const vflash_input_state_t *st = vflash_input_get_state();
+
+        if (st->buttons != 0) {
+            hold_frames++;
+            if (hold_frames >= INPUT_EXIT_HOLD_FRAMES) {
+                break;
+            }
+        } else {
+            hold_frames = 0;
+        }
+
+        if (vflash_input_is_pressed(st, VFLASH_BTN_BLUE | VFLASH_BTN_EXIT)) {
+            break;
+        }
+
+        /* Movement with Analog Stick */
+        if (st->axis_x < -8000) spr_x -= ((-st->axis_x) * 4) / 32768 + 1;
+        if (st->axis_x > 8000)  spr_x += (st->axis_x * 4) / 32768 + 1;
+        if (st->axis_y < -8000) spr_y -= ((-st->axis_y) * 4) / 32768 + 1;
+        if (st->axis_y > 8000)  spr_y += (st->axis_y * 4) / 32768 + 1;
+
+        /* Movement with D-Pad */
+        if (st->buttons & VFLASH_BTN_LEFT)  spr_x -= 3;
+        if (st->buttons & VFLASH_BTN_RIGHT) spr_x += 3;
+        if (st->buttons & VFLASH_BTN_UP)    spr_y -= 3;
+        if (st->buttons & VFLASH_BTN_DOWN)  spr_y += 3;
+
+        /* Interactive controls */
+        if (vflash_input_is_pressed(st, VFLASH_BTN_RED)) {
+            scale_idx = (scale_idx + 1u) % 6u;
+        }
+        if (vflash_input_is_pressed(st, VFLASH_BTN_GREEN)) {
+            h_flip = !h_flip;
+        }
+        if (vflash_input_is_pressed(st, VFLASH_BTN_YELLOW)) {
+            v_flip = !v_flip;
+        }
+        if (vflash_input_is_pressed(st, VFLASH_BTN_OK)) {
+            use_color_key = !use_color_key;
+        }
+        if (vflash_input_is_pressed(st, VFLASH_BTN_STICK)) {
+            spr_x = 128;
+            spr_y = 60;
+            scale_idx = 2;
+            h_flip = false;
+            v_flip = false;
+            use_color_key = true;
+        }
+
+        int32_t cur_sz = (int32_t)scale_sizes[scale_idx];
+
+        /* Clamp sprite inside visible viewport */
+        if (spr_x < 12) spr_x = 12;
+        if (spr_x + cur_sz > 304) spr_x = 304 - cur_sz;
+        if (spr_y < 34) spr_y = 34;
+        if (spr_y + cur_sz > 174) spr_y = 174 - cur_sz;
+
+        vflash_video_backbuffer(fb);
+        draw_clear(fb, COL_BG);
+
+        /* Top Header */
+        draw_rect(fb, 0, 0, 320, 22, COL_HEADER);
+        draw_rect(fb, 0, 21, 320, 1, COL_BORDER);
+        font_draw_string(fb, 8, 6, "SPRITE CONTROL: DUCK (MOVE/FLIP/SCALE)", COL_CYAN, COL_HEADER);
+        font_draw_string(fb, 260, 6, "ACTIVE", COL_GREEN, COL_HEADER);
+
+        /* Viewport panel */
+        draw_box_border(fb, 8, 28, 304, 150, COL_PANEL, COL_BORDER);
+
+        /* Checkerboard pattern */
+        for (int32_t cy = 32; cy < 174; cy += 14) {
+            for (int32_t cx = 12; cx < 304; cx += 14) {
+                uint32_t col = (((cx ^ cy) >> 4) & 1) ? 0x0E1420u : 0x141E2Eu;
+                draw_rect(fb, cx, cy, 14, 14, col);
+            }
+        }
+
+        draw_sprite_transformed(fb, s_duck_ram_pixels, DUCK_SPRITE_W, DUCK_SPRITE_H,
+                                spr_x, spr_y, cur_sz, cur_sz,
+                                h_flip, v_flip, use_color_key, DUCK_COLOR_KEY,
+                                12, 32, 304, 174);
+
+        /* Telemetry Box */
+        draw_box_border(fb, 8, 180, 304, 42, COL_PANEL, COL_BORDER);
+        font_draw_string(fb, 14, 184, "Pos:", COL_GRAY, COL_PANEL);
+        draw_i16_dec(fb, 42, 184, (int16_t)spr_x, COL_WHITE, COL_PANEL);
+        font_draw_string(fb, 74, 184, ",", COL_GRAY, COL_PANEL);
+        draw_i16_dec(fb, 82, 184, (int16_t)spr_y, COL_WHITE, COL_PANEL);
+
+        font_draw_string(fb, 120, 184, "Scale:", COL_GRAY, COL_PANEL);
+        font_draw_string(fb, 162, 184, scale_labels[scale_idx], COL_CYAN, COL_PANEL);
+
+        font_draw_string(fb, 14, 198, "H-Flip:", COL_GRAY, COL_PANEL);
+        font_draw_string(fb, 62, 198, h_flip ? "ON " : "OFF", h_flip ? COL_GREEN : COL_DIM, COL_PANEL);
+
+        font_draw_string(fb, 94, 198, "V-Flip:", COL_GRAY, COL_PANEL);
+        font_draw_string(fb, 142, 198, v_flip ? "ON " : "OFF", v_flip ? COL_GREEN : COL_DIM, COL_PANEL);
+
+        font_draw_string(fb, 178, 198, "Key:", COL_GRAY, COL_PANEL);
+        font_draw_string(fb, 206, 198, use_color_key ? "ON " : "OFF", use_color_key ? COL_YELLOW : COL_DIM, COL_PANEL);
+
+        font_draw_string(fb, 238, 198, "Duck: 64x64", COL_WHITE, COL_PANEL);
+
+        /* Footer */
+        draw_rect(fb, 0, 224, 320, 16, COL_HEADER);
+        if (hold_frames > 0) {
+            uint32_t bar_w = (hold_frames * 90u) / INPUT_EXIT_HOLD_FRAMES;
+            if (bar_w > 90u) bar_w = 90u;
+            font_draw_string(fb, 8, 228, "HOLD TO EXIT:", COL_YELLOW, COL_HEADER);
+            draw_box_border(fb, 110, 227, 94, 9, 0x0A101Cu, COL_BORDER);
+            if (bar_w > 0) draw_rect(fb, 112, 229, (int32_t)bar_w, 5, COL_RED);
+            font_draw_string(fb, 212, 228, "Exiting...", COL_WHITE, COL_HEADER);
+        } else {
+            font_draw_string(fb, 6, 228, "[STICK] Move [RED] Scale [GRN] H-Flp [YEL] V-Flp [BLUE] Menu", COL_YELLOW, COL_HEADER);
+        }
+
+        vflash_video_present(fb);
+        suite_frames++;
+        bgm_tick();
+    }
+
+    set_stage_note(8, "64x64 Duck Move/H-Flip/V-Flip/Scale OK");
+    return true;
+}
+
 static void record_test_result(uint32_t test_num, bool passed)
 {
     uint32_t bit = 1u << (test_num - 1u);
@@ -1570,27 +1989,27 @@ static void show_automated_test_summary(vflash_framebuffer_t *fb)
         draw_box_border(fb, 6, 26, 308, 195, COL_PANEL, COL_BORDER);
 
         for (uint32_t i = 0; i < SUITE_TEST_COUNT; ++i) {
-            int32_t iy = 30 + (int32_t)i * 30;
-            draw_box_border(fb, 10, iy, 300, 27, 0x0C1626u, COL_BORDER);
+            int32_t iy = 29 + (int32_t)i * 23;
+            draw_box_border(fb, 10, iy, 300, 21, 0x0C1626u, COL_BORDER);
 
             uint32_t bit = 1u << i;
             bool executed = (suite_done_mask & bit) != 0;
             bool passed = (suite_results_mask & bit) != 0;
 
-            font_draw_string(fb, 16, iy + 4, stage_short_names[i], COL_WHITE, 0x0C1626u);
+            font_draw_string(fb, 16, iy + 2, stage_short_names[i], COL_WHITE, 0x0C1626u);
 
             if (executed) {
-                font_draw_string(fb, 252, iy + 4, passed ? "[PASS]" : "[FAIL]",
+                font_draw_string(fb, 252, iy + 2, passed ? "[PASS]" : "[FAIL]",
                                  passed ? COL_GREEN : COL_RED, 0x0C1626u);
             } else {
-                font_draw_string(fb, 252, iy + 4, "[SKIP]", COL_DIM, 0x0C1626u);
+                font_draw_string(fb, 252, iy + 2, "[SKIP]", COL_DIM, 0x0C1626u);
             }
 
             const char *note = suite_stage_notes[i];
             if (note[0] != '\0') {
-                font_draw_string(fb, 16, iy + 15, note, passed ? COL_GRAY : COL_RED, 0x0C1626u);
+                font_draw_string(fb, 16, iy + 11, note, passed ? COL_GRAY : COL_RED, 0x0C1626u);
             } else {
-                font_draw_string(fb, 16, iy + 15, "No stage notes recorded", COL_DIM, 0x0C1626u);
+                font_draw_string(fb, 16, iy + 11, "No stage notes recorded", COL_DIM, 0x0C1626u);
             }
         }
 
@@ -1613,15 +2032,17 @@ static void run_all_automated_tests(vflash_framebuffer_t *fb)
     record_test_result(4, run_test_gpu_3d_cube(fb, true));
     record_test_result(5, run_test_iso9660_fs(fb, true));
     record_test_result(6, run_test_sdl2_assets(fb, true));
+    record_test_result(7, run_test_fmv(fb, true));
+    record_test_result(8, run_test_sprite_control(fb, true));
     suite_current_test = 0;
     show_automated_test_summary(fb);
 }
 
-/* --- Interactive Diagnostic 7: Input Diagnostic Menu --- */
+/* --- Interactive Diagnostic 9: Input Diagnostic Menu --- */
 
 static void run_diag_input(vflash_framebuffer_t *fb)
 {
-    suite_current_test = 7;
+    suite_current_test = 9;
     suite_diag_visited_mask |= (1u << 0);
     uint32_t ever_seen = 0;
     uint32_t hold_frames = 0;
@@ -1745,11 +2166,11 @@ static void run_diag_input(vflash_framebuffer_t *fb)
     suite_current_test = 0;
 }
 
-/* --- Interactive Diagnostic 8: RAM & Memory Inspector --- */
+/* --- Interactive Diagnostic 10: RAM & Memory Inspector --- */
 
 static void run_diag_ram_inspector(vflash_framebuffer_t *fb)
 {
-    suite_current_test = 8;
+    suite_current_test = 10;
     suite_diag_visited_mask |= (1u << 1);
     uint32_t err_addr = 0;
     uint32_t mmu_ok = 0;
@@ -1933,9 +2354,11 @@ static void fill_diag_audio_chunk(uint32_t mode, uint32_t *phase_l, uint32_t *ph
     *out_peak_r = pk_r;
 }
 
+/* --- Interactive Diagnostic 11: Sound & PCM Audio Menu --- */
+
 static void run_diag_sound_menu(vflash_framebuffer_t *fb)
 {
-    suite_current_test = 9;
+    suite_current_test = 11;
     suite_diag_visited_mask |= (1u << 2);
     vflash_audio_config_t cfg = {
         .sample_rate = 44100,
@@ -2069,37 +2492,37 @@ static void draw_main_menu(vflash_framebuffer_t *fb, uint32_t cursor)
                      (suite_mmu_control & 1u) ? COL_GREEN : COL_YELLOW, COL_HEADER);
     font_draw_string(fb, 76, 13, "PASSED:", COL_GRAY, COL_HEADER);
     draw_u32_dec(fb, 134, 13, suite_tests_passed, COL_GREEN, COL_HEADER);
-    font_draw_string(fb, 144, 13, "/6", COL_GRAY, COL_HEADER);
+    font_draw_string(fb, 144, 13, "/8", COL_GRAY, COL_HEADER);
     if (suite_tests_passed == SUITE_TEST_COUNT && suite_tests_failed == 0) {
         font_draw_string(fb, 184, 13, "[ALL TESTS PASS]", COL_GREEN, COL_HEADER);
     }
 
     /* Menu list box */
-    draw_box_border(fb, 6, 25, 308, 195, COL_PANEL, COL_BORDER);
+    draw_box_border(fb, 6, 25, 308, 196, COL_PANEL, COL_BORDER);
 
     for (uint32_t i = 0; i < MENU_ITEM_COUNT; ++i) {
-        int32_t iy = 29 + (int32_t)i * 19;
+        int32_t iy = 28 + (int32_t)i * 16;
         bool sel = (i == cursor);
         uint32_t row_bg = sel ? COL_SEL_BG : COL_PANEL;
         if (sel) {
-            draw_box_border(fb, 10, iy - 2, 300, 17, COL_SEL_BG, COL_SEL_BORDER);
+            draw_box_border(fb, 10, iy - 1, 300, 15, COL_SEL_BG, COL_SEL_BORDER);
         }
 
-        uint32_t label_col = sel ? COL_WHITE : ((i == 0) ? COL_YELLOW : ((i >= 7) ? COL_CYAN : COL_GRAY));
-        font_draw_string(fb, 16, iy + 2, menu_labels[i], label_col, row_bg);
+        uint32_t label_col = sel ? COL_WHITE : ((i == 0) ? COL_YELLOW : ((i > SUITE_TEST_COUNT) ? COL_CYAN : COL_GRAY));
+        font_draw_string(fb, 14, iy + 3, menu_labels[i], label_col, row_bg);
 
-        /* Status badge on the right side for tests 1..6 and interactive menus 7..9 */
+        /* Status badge on the right side for tests 1..8 and interactive menus 9..11 */
         if (i >= 1 && i <= SUITE_TEST_COUNT) {
             uint32_t bit = 1u << (i - 1u);
             if (suite_done_mask & bit) {
                 bool p = (suite_results_mask & bit) != 0;
-                font_draw_string(fb, 256, iy + 2, p ? "[PASS]" : "[FAIL]",
+                font_draw_string(fb, 256, iy + 3, p ? "[PASS]" : "[FAIL]",
                                  p ? COL_GREEN : COL_RED, row_bg);
             } else {
-                font_draw_string(fb, 256, iy + 2, "[----]", COL_DIM, row_bg);
+                font_draw_string(fb, 256, iy + 3, "[----]", COL_DIM, row_bg);
             }
-        } else if (i >= 7) {
-            font_draw_string(fb, 256, iy + 2, "[MENU]", COL_CYAN, row_bg);
+        } else if (i > SUITE_TEST_COUNT) {
+            font_draw_string(fb, 256, iy + 3, "[MENU]", COL_CYAN, row_bg);
         }
     }
 
@@ -2203,12 +2626,20 @@ void vflash_main(void)
                 suite_current_test = 0;
                 break;
             case 7:
-                run_diag_input(&fb);
+                record_test_result(7, run_test_fmv(&fb, false));
+                suite_current_test = 0;
                 break;
             case 8:
-                run_diag_ram_inspector(&fb);
+                record_test_result(8, run_test_sprite_control(&fb, false));
+                suite_current_test = 0;
                 break;
             case 9:
+                run_diag_input(&fb);
+                break;
+            case 10:
+                run_diag_ram_inspector(&fb);
+                break;
+            case 11:
                 bgm_stop();
                 run_diag_sound_menu(&fb);
                 bgm_start();
