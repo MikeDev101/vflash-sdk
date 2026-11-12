@@ -18,6 +18,7 @@ function(vflash_add_program target script)
         "${VFLASH_SDK_DIR}/src/platform/audio.c"
         "${VFLASH_SDK_DIR}/src/graphics/draw.c"
         "${VFLASH_SDK_DIR}/src/graphics/font.c"
+        "${VFLASH_SDK_DIR}/src/platform/loading.c"
         ${ARGN})
     target_include_directories(${target} PRIVATE
         "${VFLASH_SDK_DIR}/include")

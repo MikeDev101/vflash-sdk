@@ -14,3 +14,13 @@ __pycache__/
 /tools/disc-xplorer
 /dumps/
 /cards/
+
+# Copyrighted media and generated video benchmark assets
+/assets/local/
+/assets/cache/
+/benchmarks/media/
+*.mjp
+*.mp4
+*.mkv
+*.webm
+*.y4m

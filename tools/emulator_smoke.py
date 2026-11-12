@@ -20,7 +20,7 @@ from elf_image import RAM_START, RAM_END, read_bounded, read_elf
 
 ROOT = Path(__file__).resolve().parents[1]
 EXPECTED = {"boot_marker": 0x56464C53, "startup_status": 0x600D600D, "data_cookie": 0x13579BDF}
-SUITES = ("mmu-identity", "mmu-undefined", "input", "audio", "fs", "suite", "cpp", "fmv", "stress")
+SUITES = ("mmu-identity", "mmu-undefined", "input", "audio", "fs", "suite", "cpp", "fmv", "stress", "bad-apple")
 INPUT_SEQUENCE = (
     "0x1@450-500;0x2@520-570;0x4@590-640;0x8@660-710;"
     "0x10@730-780;0x20@800-850;0x40@870-920;0x80@940-990;0x100@1010-1060"
@@ -116,6 +116,10 @@ def run_suite(suite, emulator, bios, out):
             elf = ROOT / f"build/vflash_stress_{mmu}.elf"
             disc = ROOT / f"build/stress/{mmu}/homebrew.cue"
             extra = ["--frames", "960"]
+        elif suite == "bad-apple":
+            elf = ROOT / f"build/vflash_bad_apple_{mmu}.elf"
+            disc = ROOT / f"build/bad_apple/{mmu}/homebrew.cue"
+            extra = ["--frames", "600"]
         else:
             elf = ROOT / (f"build/vflash_fs_{mmu}.elf" if kind == "native" else f"build/vflash_sdl2_asset_{mmu}.elf")
             disc = ROOT / (f"build/fs/native/{mmu}/homebrew.cue" if kind == "native" else f"build/fs/sdl2/{mmu}/homebrew.cue")
@@ -173,6 +177,11 @@ def run_suite(suite, emulator, bios, out):
             assert word("stress_audio_effective_rate") > 19000
             assert word("stress_avg_frame_us") > 0
             assert word("stress_jpeg_avg_us") > 0
+        elif suite == "bad-apple":
+            assert word("bad_apple_status") == 0x42415031
+            assert word("bad_apple_frames") >= 15
+            assert word("bad_apple_audio_samples") >= 1000
+            assert word("bad_apple_passed") == 1
         else:
             if kind == "native":
                 assert word("fs_demo_err") == 0 and word("fs_demo_tests_passed") == 8 and word("fs_demo_bytes_read") == 6308
@@ -188,10 +197,11 @@ def run_suite(suite, emulator, bios, out):
         "cpp": ("cpp_off_disc_image", "cpp_on_disc_image"),
         "fmv": ("fmv_off_disc_image", "fmv_on_disc_image"),
         "stress": ("stress_off_disc_image", "stress_on_disc_image"),
+        "bad-apple": ("bad_apple_off_disc_image", "bad_apple_on_disc_image"),
     }[suite]
     subprocess.run(["cmake", "--build", str(ROOT / "build"), "--target", *suite_targets],
                    check=True, stdout=subprocess.DEVNULL)
-    kinds = ("unified",) if suite in ("suite", "cpp", "fmv", "stress") else ("native", "sdl2")
+    kinds = ("unified",) if suite in ("suite", "cpp", "fmv", "stress", "bad-apple") else ("native", "sdl2")
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
         futs = [pool.submit(run_variant, kind, mmu) for mmu in ("off", "on") for kind in kinds]
         for f in futs:
