@@ -43,10 +43,12 @@ def benchmark_profile(profile: str, mmu: str, frames: int = 400, bios: Path = No
     ]
     subprocess.run(stage_cmd, check=True)
 
-    # 2. Build disc image
-    disc_target = f"bad_apple_{mmu}_disc_image"
+    # 2. Build ELF and disc image
     build_dir = ROOT / "build"
-    # Reconfigure with profile if needed, or point disc creation to staged assets
+    subprocess.run(
+        ["cmake", "--build", str(build_dir), "--target", f"vflash_bad_apple_{mmu}"],
+        check=True,
+    )
     disc_dir = build_dir / f"bad_apple_{profile}/{mmu}"
     disc_dir.mkdir(parents=True, exist_ok=True)
 

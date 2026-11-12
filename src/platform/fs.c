@@ -9,10 +9,13 @@ typedef struct {
     uint32_t file_pos;
 } vflash_file_handle_t;
 
+#define FS_CACHE_SECTORS 4u
+
 static vflash_file_handle_t s_files[VFLASH_FS_MAX_OPEN_FILES];
-static uint8_t s_cache[VFLASH_CD_SECTOR_SIZE] __attribute__((aligned(4)));
+static uint8_t s_cache[FS_CACHE_SECTORS * VFLASH_CD_SECTOR_SIZE] __attribute__((aligned(4)));
 static uint8_t s_root_cache[VFLASH_CD_SECTOR_SIZE] __attribute__((aligned(4)));
 static uint32_t s_cached_lba = 0xFFFFFFFFu;
+static uint32_t s_cached_count = 0u;
 
 static uint32_t s_root_lba = 0;
 static uint32_t s_root_size = 0;
@@ -48,17 +51,20 @@ static bool char_eq_ci(char a, char b)
 
 static int fs_load_sector(uint32_t lba)
 {
-    if (s_cached_lba == lba) return 0;
+    if (s_cached_count > 0 && lba == s_cached_lba) return 0;
     if (s_root_cached && lba == s_root_lba) {
         fs_memcpy(s_cache, s_root_cache, VFLASH_CD_SECTOR_SIZE);
         s_cached_lba = lba;
+        s_cached_count = 1u;
         return 0;
     }
     if (vflash_cd_read_sector(lba, s_cache) != 1) {
         s_cached_lba = 0xFFFFFFFFu;
+        s_cached_count = 0u;
         return -1;
     }
     s_cached_lba = lba;
+    s_cached_count = 1u;
     return 0;
 }
 
@@ -68,6 +74,7 @@ int vflash_fs_init(void)
         return 0;
     }
     s_cached_lba = 0xFFFFFFFFu;
+    s_cached_count = 0u;
     s_root_cached = false;
     s_fs_ready = false;
     for (int i = 0; i < VFLASH_FS_MAX_OPEN_FILES; ++i) {
@@ -302,13 +309,23 @@ int32_t vflash_fs_read(int fd, void *buf, uint32_t count)
     uint8_t *dst = (uint8_t *)buf;
     uint32_t extent = s_files[fd].extent_lba;
 
+    uint32_t total_file_sectors = (file_size + VFLASH_CD_SECTOR_SIZE - 1u) >> 11;
+
     while (bytes_left > 0) {
         uint32_t sec_idx = file_pos >> 11;
         uint32_t sec_off = file_pos & 2047u;
         uint32_t cur_lba = extent + sec_idx;
 
-        if (sec_off == 0 && bytes_left >= VFLASH_CD_SECTOR_SIZE && (((uintptr_t)dst & 3u) == 0)) {
-            /* Fast path: burst multi-sector DMA read into 4-byte aligned destination */
+        if (s_cached_count > 0 && cur_lba >= s_cached_lba && cur_lba < s_cached_lba + s_cached_count) {
+            uint32_t cache_sec_idx = cur_lba - s_cached_lba;
+            uint32_t avail_in_cache = ((s_cached_count - cache_sec_idx) << 11) - sec_off;
+            uint32_t chunk = (avail_in_cache > bytes_left) ? bytes_left : avail_in_cache;
+            fs_memcpy(dst, s_cache + (cache_sec_idx << 11) + sec_off, chunk);
+            dst += chunk;
+            file_pos += chunk;
+            bytes_left -= chunk;
+        } else if (sec_off == 0 && bytes_left >= (FS_CACHE_SECTORS * VFLASH_CD_SECTOR_SIZE) && (((uintptr_t)dst & 3u) == 0)) {
+            /* Fast path: large burst multi-sector DMA read into 4-byte aligned destination */
             uint32_t full_sectors = bytes_left >> 11;
             if (vflash_cd_read_sectors(cur_lba, full_sectors, dst) != (int)full_sectors) {
                 s_files[fd].file_pos = file_pos;
@@ -319,17 +336,17 @@ int32_t vflash_fs_read(int fd, void *buf, uint32_t count)
             file_pos += burst_bytes;
             bytes_left -= burst_bytes;
         } else {
-            /* Cached read for partial or unaligned chunks */
-            if (fs_load_sector(cur_lba) != 0) {
+            /* Multi-sector read-ahead into s_cache */
+            uint32_t rem_sec = (sec_idx < total_file_sectors) ? (total_file_sectors - sec_idx) : 1u;
+            uint32_t n_sec = (rem_sec > FS_CACHE_SECTORS) ? FS_CACHE_SECTORS : rem_sec;
+            if (vflash_cd_read_sectors(cur_lba, n_sec, s_cache) != (int)n_sec) {
+                s_cached_lba = 0xFFFFFFFFu;
+                s_cached_count = 0u;
                 s_files[fd].file_pos = file_pos;
                 return (count > bytes_left) ? (int32_t)(count - bytes_left) : -1;
             }
-            uint32_t chunk = VFLASH_CD_SECTOR_SIZE - sec_off;
-            if (chunk > bytes_left) chunk = bytes_left;
-            fs_memcpy(dst, s_cache + sec_off, chunk);
-            dst += chunk;
-            file_pos += chunk;
-            bytes_left -= chunk;
+            s_cached_lba = cur_lba;
+            s_cached_count = n_sec;
         }
     }
 

@@ -1546,7 +1546,23 @@ static bool run_test_fmv(vflash_framebuffer_t *fb, bool batch_mode)
     bool ok = true;
 
     if (batch_mode) {
-        for (uint32_t f = 0; f < total_frames; ++f) {
+        /* Initialize backdrop and framing borders cleanly on both double-buffers */
+        for (int b = 0; b < 2; ++b) {
+            vflash_video_backbuffer(fb);
+            draw_clear(fb, COL_BG);
+            draw_test_hud(fb, 7, "MJP FMV PLAYBACK", 0, total_frames, batch_mode);
+            /* Video frame border (224x112 at x=48, y=28) */
+            draw_rect(fb, 47, 27, 226, 1, COL_BORDER);
+            draw_rect(fb, 47, 140, 226, 1, COL_BORDER);
+            draw_rect(fb, 47, 28, 1, 112, COL_BORDER);
+            draw_rect(fb, 272, 28, 1, 112, COL_BORDER);
+            draw_rect(fb, 48, 28, 224, 112, 0x000000u);
+            draw_box_border(fb, 8, 160, 304, 58, COL_PANEL, COL_BORDER);
+            vflash_video_present(fb);
+        }
+
+        uint32_t f = 0;
+        while (f < total_frames) {
             if (check_abort_to_menu()) {
                 vflash_video_close(&s_fmv_player);
                 bgm_start();
@@ -1554,29 +1570,34 @@ static bool run_test_fmv(vflash_framebuffer_t *fb, bool batch_mode)
             }
 
             vflash_video_backbuffer(fb);
-            draw_test_hud(fb, 7, "MJP FMV PLAYBACK", f + 1, total_frames, batch_mode);
-            draw_box_border(fb, 8, 30, 304, 188, COL_PANEL, COL_BORDER);
+            int frame_ready = vflash_video_update(&s_fmv_player, fb);
+            if (frame_ready) {
+                f++;
+                draw_test_hud(fb, 7, "MJP FMV PLAYBACK", f, total_frames, batch_mode);
 
-            vflash_video_update(&s_fmv_player, fb);
+                /* Telemetry panel below the video (y=160..217) */
+                draw_box_border(fb, 8, 160, 304, 58, COL_PANEL, COL_BORDER);
 
-            /* Telemetry inside HUD */
-            font_draw_string(fb, 16, 172, "Video Res   :", COL_GRAY, COL_PANEL);
-            draw_u32_dec(fb, 120, 172, s_fmv_player.width, COL_WHITE, COL_PANEL);
-            font_draw_string(fb, 144, 172, "x", COL_GRAY, COL_PANEL);
-            draw_u32_dec(fb, 156, 172, s_fmv_player.height, COL_WHITE, COL_PANEL);
+                font_draw_string(fb, 16, 166, "Video Res   :", COL_GRAY, COL_PANEL);
+                draw_u32_dec(fb, 120, 166, s_fmv_player.width, COL_WHITE, COL_PANEL);
+                font_draw_string(fb, 144, 166, "x", COL_GRAY, COL_PANEL);
+                draw_u32_dec(fb, 156, 166, s_fmv_player.height, COL_WHITE, COL_PANEL);
 
-            font_draw_string(fb, 16, 186, "Decoded/FPS :", COL_GRAY, COL_PANEL);
-            draw_u32_dec(fb, 120, 186, s_fmv_player.current_frame, COL_GREEN, COL_PANEL);
-            font_draw_string(fb, 144, 186, "/", COL_GRAY, COL_PANEL);
-            draw_u32_dec(fb, 156, 186, s_fmv_player.fps, COL_CYAN, COL_PANEL);
+                font_draw_string(fb, 16, 180, "Decoded/FPS :", COL_GRAY, COL_PANEL);
+                draw_u32_dec(fb, 120, 180, s_fmv_player.current_frame, COL_GREEN, COL_PANEL);
+                font_draw_string(fb, 144, 180, "/", COL_GRAY, COL_PANEL);
+                draw_u32_dec(fb, 156, 180, s_fmv_player.fps, COL_CYAN, COL_PANEL);
 
-            font_draw_string(fb, 16, 200, "Audio Queue :", COL_GRAY, COL_PANEL);
-            draw_u32_dec(fb, 120, 200, s_fmv_player.audio_samples_queued, COL_YELLOW, COL_PANEL);
-            font_draw_string(fb, 180, 200, "Decode us:", COL_GRAY, COL_PANEL);
-            draw_u32_dec(fb, 250, 200, s_fmv_player.last_decode_time_us, COL_WHITE, COL_PANEL);
+                font_draw_string(fb, 16, 194, "Audio Queue :", COL_GRAY, COL_PANEL);
+                draw_u32_dec(fb, 120, 194, s_fmv_player.audio_samples_queued, COL_YELLOW, COL_PANEL);
+                font_draw_string(fb, 180, 194, "Decode us:", COL_GRAY, COL_PANEL);
+                draw_u32_dec(fb, 250, 194, s_fmv_player.last_decode_time_us, COL_WHITE, COL_PANEL);
 
-            vflash_video_present(fb);
-            suite_frames++;
+                vflash_video_present(fb);
+                suite_frames++;
+            } else {
+                vflash_audio_update();
+            }
         }
 
         ok = (s_fmv_player.current_frame >= 10);
@@ -1586,7 +1607,25 @@ static bool run_test_fmv(vflash_framebuffer_t *fb, bool batch_mode)
         return ok;
     }
 
-    /* Interactive mode */
+    /* Interactive mode: prepare both buffers */
+    for (int b = 0; b < 2; ++b) {
+        vflash_video_backbuffer(fb);
+        draw_clear(fb, COL_BG);
+        draw_rect(fb, 0, 0, 320, 22, COL_HEADER);
+        draw_rect(fb, 0, 21, 320, 1, COL_BORDER);
+        font_draw_string(fb, 8, 6, "MJP MOTION JPEG VIDEO PLAYER", COL_CYAN, COL_HEADER);
+        draw_rect(fb, 47, 27, 226, 1, COL_BORDER);
+        draw_rect(fb, 47, 140, 226, 1, COL_BORDER);
+        draw_rect(fb, 47, 28, 1, 112, COL_BORDER);
+        draw_rect(fb, 272, 28, 1, 112, COL_BORDER);
+        draw_rect(fb, 48, 28, 224, 112, 0x000000u);
+        draw_box_border(fb, 8, 164, 304, 54, COL_PANEL, COL_BORDER);
+        draw_rect(fb, 0, 224, 320, 16, COL_HEADER);
+        font_draw_string(fb, 8, 228, "[RED] Pause/Play  [GRN] Restart  [OK/BLUE] Menu", COL_YELLOW, COL_HEADER);
+        vflash_video_present(fb);
+    }
+
+    bool need_redraw = true;
     while (1) {
         vflash_input_poll();
         const vflash_input_state_t *st = vflash_input_get_state();
@@ -1601,51 +1640,53 @@ static bool run_test_fmv(vflash_framebuffer_t *fb, bool batch_mode)
             } else if (s_fmv_player.state == VFLASH_VIDEO_PAUSED) {
                 vflash_video_play(&s_fmv_player);
             }
+            need_redraw = true;
         }
         if (vflash_input_is_pressed(st, VFLASH_BTN_GREEN)) {
             vflash_video_restart(&s_fmv_player);
+            need_redraw = true;
         }
 
         vflash_video_backbuffer(fb);
-        draw_clear(fb, COL_BG);
+        int frame_ready = vflash_video_update(&s_fmv_player, fb);
 
-        /* Top Banner */
-        draw_rect(fb, 0, 0, 320, 22, COL_HEADER);
-        draw_rect(fb, 0, 21, 320, 1, COL_BORDER);
-        font_draw_string(fb, 8, 6, "MJP MOTION JPEG VIDEO PLAYER", COL_CYAN, COL_HEADER);
+        if (frame_ready || need_redraw) {
+            need_redraw = false;
 
-        const char *st_str = "STOPPED";
-        uint32_t st_col = COL_RED;
-        if (s_fmv_player.state == VFLASH_VIDEO_PLAYING) { st_str = "PLAYING"; st_col = COL_GREEN; }
-        else if (s_fmv_player.state == VFLASH_VIDEO_PAUSED) { st_str = "PAUSED"; st_col = COL_YELLOW; }
-        else if (s_fmv_player.state == VFLASH_VIDEO_FINISHED) { st_str = "FINISHED"; st_col = COL_CYAN; }
-        font_draw_string(fb, 230, 6, st_str, st_col, COL_HEADER);
+            /* Header state label */
+            draw_rect(fb, 220, 0, 100, 21, COL_HEADER);
+            const char *st_str = "STOPPED";
+            uint32_t st_col = COL_RED;
+            if (s_fmv_player.state == VFLASH_VIDEO_PLAYING) { st_str = "PLAYING"; st_col = COL_GREEN; }
+            else if (s_fmv_player.state == VFLASH_VIDEO_PAUSED) { st_str = "PAUSED"; st_col = COL_YELLOW; }
+            else if (s_fmv_player.state == VFLASH_VIDEO_FINISHED) { st_str = "FINISHED"; st_col = COL_CYAN; }
+            font_draw_string(fb, 230, 6, st_str, st_col, COL_HEADER);
 
-        vflash_video_update(&s_fmv_player, fb);
+            /* Lower Telemetry Box (y=164..217) */
+            draw_box_border(fb, 8, 164, 304, 54, COL_PANEL, COL_BORDER);
+            font_draw_string(fb, 16, 170, "Frame:", COL_GRAY, COL_PANEL);
+            draw_u32_dec(fb, 64, 170, s_fmv_player.current_frame, COL_GREEN, COL_PANEL);
+            font_draw_string(fb, 94, 170, "/", COL_GRAY, COL_PANEL);
+            draw_u32_dec(fb, 104, 170, s_fmv_player.frame_count, COL_WHITE, COL_PANEL);
 
-        /* Lower Telemetry Box */
-        draw_box_border(fb, 8, 174, 304, 46, COL_PANEL, COL_BORDER);
-        font_draw_string(fb, 16, 178, "Frame:", COL_GRAY, COL_PANEL);
-        draw_u32_dec(fb, 64, 178, s_fmv_player.current_frame, COL_GREEN, COL_PANEL);
-        font_draw_string(fb, 94, 178, "/", COL_GRAY, COL_PANEL);
-        draw_u32_dec(fb, 104, 178, s_fmv_player.frame_count, COL_WHITE, COL_PANEL);
+            font_draw_string(fb, 160, 170, "Format:", COL_GRAY, COL_PANEL);
+            draw_u32_dec(fb, 214, 170, s_fmv_player.width, COL_CYAN, COL_PANEL);
+            font_draw_string(fb, 238, 170, "x", COL_GRAY, COL_PANEL);
+            draw_u32_dec(fb, 248, 170, s_fmv_player.height, COL_CYAN, COL_PANEL);
 
-        font_draw_string(fb, 160, 178, "Format:", COL_GRAY, COL_PANEL);
-        draw_u32_dec(fb, 214, 178, s_fmv_player.width, COL_CYAN, COL_PANEL);
-        font_draw_string(fb, 238, 178, "x", COL_GRAY, COL_PANEL);
-        draw_u32_dec(fb, 248, 178, s_fmv_player.height, COL_CYAN, COL_PANEL);
+            font_draw_string(fb, 16, 186, "Audio Samples:", COL_GRAY, COL_PANEL);
+            draw_u32_dec(fb, 114, 186, s_fmv_player.audio_samples_queued, COL_YELLOW, COL_PANEL);
+            font_draw_string(fb, 180, 186, "Decode us:", COL_GRAY, COL_PANEL);
+            draw_u32_dec(fb, 250, 186, s_fmv_player.last_decode_time_us, COL_WHITE, COL_PANEL);
 
-        font_draw_string(fb, 16, 192, "Audio Samples:", COL_GRAY, COL_PANEL);
-        draw_u32_dec(fb, 114, 192, s_fmv_player.audio_samples_queued, COL_YELLOW, COL_PANEL);
-        font_draw_string(fb, 180, 192, "Decode us:", COL_GRAY, COL_PANEL);
-        draw_u32_dec(fb, 250, 192, s_fmv_player.last_decode_time_us, COL_WHITE, COL_PANEL);
+            font_draw_string(fb, 16, 202, "FPS Target/Now:", COL_GRAY, COL_PANEL);
+            draw_u32_dec(fb, 130, 202, s_fmv_player.fps, COL_CYAN, COL_PANEL);
 
-        /* Footer */
-        draw_rect(fb, 0, 224, 320, 16, COL_HEADER);
-        font_draw_string(fb, 8, 228, "[RED] Pause/Play  [GRN] Restart  [OK/BLUE] Menu", COL_YELLOW, COL_HEADER);
-
-        vflash_video_present(fb);
-        suite_frames++;
+            vflash_video_present(fb);
+            suite_frames++;
+        } else {
+            vflash_audio_update();
+        }
     }
 
     vflash_video_close(&s_fmv_player);

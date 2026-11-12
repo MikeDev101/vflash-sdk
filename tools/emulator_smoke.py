@@ -96,7 +96,7 @@ def run_suite(suite, emulator, bios, out):
             elf = ROOT / f"build/vflash_suite_{mmu}.elf"
             disc = ROOT / f"build/suite/{mmu}/homebrew.cue"
             seq = (
-                "0x100@440-450;"
+                "0x100@500-515;"
                 "0x100@1020-1035;"
                 "0x1@1060-1075;0x100@1095-1105;0x80@1135-1175;"
                 "0x1@1205-1220;0x100@1240-1250;0x80@1280-1320;"

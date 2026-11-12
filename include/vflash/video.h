@@ -66,6 +66,8 @@ typedef struct vflash_video_player {
     bool loop;
     bool audio_enabled;
     uint32_t audio_samples_queued;
+    uint32_t audio_samples_base;
+    uint32_t audio_clock_base_ticks;
     uint32_t dropped_frames;
     uint32_t last_decode_time_us;
 

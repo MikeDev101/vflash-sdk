@@ -135,6 +135,7 @@ int vflash_cd_init(void)
     cd_dsp_cmd(32, 0x9F209000u); /* Enable 2x base DSP speed */
     cd_dsp_cmd(32, 0xD0C00040u); /* Sony CXD3068Q CAV-W 4x spindle velocity */
     cd_dsp_cmd(32, 0xE6670000u); /* Spindle mode 0x65 for 4x transfer rate (300 sectors/sec) */
+    cd_dsp_cmd(8, 0x20u);        /* Hold tracking while idle so head does not overshoot */
     return 0;
 }
 
@@ -160,6 +161,7 @@ int vflash_cd_read_sectors(uint32_t lba, uint32_t count, void *dst)
     }
 
     cd_position_head((int32_t)lba);
+    cd_dsp_cmd(8, 0x24u);
 
     uint32_t msf = lba_to_msf(lba);
     uint32_t bytes = count * VFLASH_CD_SECTOR_SIZE;
@@ -187,8 +189,9 @@ int vflash_cd_read_sectors(uint32_t lba, uint32_t count, void *dst)
         uint32_t st = CD_REG(0x64);
         if (st & (0x10u | 0x10000u)) {
             CD_REG(0x40) &= ~0x04u;
+            cd_dsp_cmd(8, 0x20u); /* Hold tracking so head stays at lba + count - 1 */
             CD_REG(0x64) = 0xFFFFFFFFu;
-            s_current_lba = (int32_t)(lba + count);
+            s_current_lba = (int32_t)(lba + count - 1u);
             return (int)count;
         }
         if (st & 0x1000u) {
@@ -197,8 +200,9 @@ int vflash_cd_read_sectors(uint32_t lba, uint32_t count, void *dst)
             delivered++;
             if (delivered >= count) {
                 CD_REG(0x40) &= ~0x04u;
+                cd_dsp_cmd(8, 0x20u); /* Hold tracking so head stays at lba + count - 1 */
                 CD_REG(0x64) = 0xFFFFFFFFu;
-                s_current_lba = (int32_t)(lba + count);
+                s_current_lba = (int32_t)(lba + count - 1u);
                 return (int)count;
             }
         }
@@ -212,6 +216,7 @@ int vflash_cd_read_sectors(uint32_t lba, uint32_t count, void *dst)
                 if (s_current_lba > (int32_t)lba || s_current_lba < (int32_t)lba - 25) {
                     CD_REG(0x40) &= ~0x04u;
                     cd_position_head((int32_t)lba);
+                    cd_dsp_cmd(8, 0x24u);
                     CD_REG(0x1C) = msf;
                     CD_REG(0x20) = count;
                     CD_REG(0x24) = addr;
@@ -226,6 +231,7 @@ int vflash_cd_read_sectors(uint32_t lba, uint32_t count, void *dst)
             CD_REG(0x40) &= ~0x04u;
             cd_home_head();
             cd_position_head((int32_t)lba);
+            cd_dsp_cmd(8, 0x24u);
             CD_REG(0x1C) = msf;
             CD_REG(0x20) = count;
             CD_REG(0x24) = addr;
@@ -236,6 +242,7 @@ int vflash_cd_read_sectors(uint32_t lba, uint32_t count, void *dst)
     }
 
     CD_REG(0x40) &= ~0x04u;
+    cd_dsp_cmd(8, 0x20u);
     CD_REG(0x64) = 0xFFFFFFFFu;
     return -1;
 }

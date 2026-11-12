@@ -28,6 +28,7 @@ static uint32_t s_queued_samples = 0;
 static uint32_t s_samples_played = 0;
 static uint32_t s_samples_written = 0;
 static uint32_t s_underrun_count = 0;
+static bool s_in_underrun = false;
 
 static void reset_hardware_voices(void)
 {
@@ -130,6 +131,7 @@ bool vflash_audio_init(const vflash_audio_config_t *config)
     s_samples_played = 0;
     s_samples_written = 0;
     s_underrun_count = 0;
+    s_in_underrun = false;
     s_paused = false;
     s_hardware_started = false;
     s_active = true;
@@ -168,14 +170,16 @@ void vflash_audio_update(void)
         s_last_hw_idx = hw_idx;
 
         if (consumed >= s_queued_samples) {
-            if (s_queued_samples > 0) {
+            if (!s_in_underrun && s_queued_samples > 0) {
                 s_underrun_count++;
+                s_in_underrun = true;
             }
-            s_queued_samples = 0;
-            /* Keep hardware voice running! The consumed buffer was already zeroed above,
-             * so it reads silence without cutting out or requiring a restart cycle.
-             * Align write pointer safely ahead of read index to resume cleanly. */
+            /* All previously queued valid audio has now been consumed (zero valid samples
+             * remain in the ring). Keep hardware voice running and place 512 silence samples
+             * ahead of hw_idx while setting s_queued_samples = 512u so the ring invariant
+             * ((s_last_hw_idx + s_queued_samples) & MASK == s_write_idx) holds strictly. */
             s_write_idx = (hw_idx + 512u) & VFLASH_AUDIO_RING_MASK;
+            s_queued_samples = 512u;
             for (uint32_t k = 0; k < 512u; ++k) {
                 uint32_t z = (hw_idx + k) & VFLASH_AUDIO_RING_MASK;
                 s_ring_left[z] = 0;
@@ -237,6 +241,7 @@ uint32_t vflash_audio_write(const void *samples, uint32_t num_bytes)
     s_write_idx = w;
     s_queued_samples += frames_to_write;
     s_samples_written += frames_to_write;
+    s_in_underrun = false;
 
     /* Pre-zero buffer space ahead of write cursor so underruns play silence,
      * not stale looping audio from previous passes. */

@@ -121,6 +121,131 @@ class MjpContainerTests(unittest.TestCase):
             info = verify_mjp(data)
             self.assertEqual(info["frame_count"], 3)
 
+    def test_picojpeg_color_to_grayscale_neutral_chroma_transition(self):
+        """Verify PicoJPEG neutral-chroma (c == 128) skip in PJPG_YH2V2 never leaks stale chroma."""
+        import ctypes
+        import subprocess
+
+        repo_root = Path(__file__).resolve().parents[1]
+        c_src = repo_root / "src" / "graphics" / "picojpeg.c"
+        inc_dir = repo_root / "include"
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            so_path = Path(tmpdir) / "libpicojpeg_test.so"
+            wrapper_c = Path(tmpdir) / "wrapper.c"
+            wrapper_c.write_text(
+                """
+                #include <stdint.h>
+                #include <string.h>
+                #include "vflash/picojpeg.h"
+
+                typedef struct {
+                    const uint8_t *data;
+                    uint32_t size;
+                    uint32_t pos;
+                } mem_buf_t;
+
+                static unsigned char read_cb(unsigned char *pBuf, unsigned char buf_size,
+                                             unsigned char *pBytes_actually_read, void *pCallback_data) {
+                    mem_buf_t *m = (mem_buf_t *)pCallback_data;
+                    uint32_t avail = (m->pos < m->size) ? (m->size - m->pos) : 0;
+                    uint32_t n = (avail < buf_size) ? avail : buf_size;
+                    if (n > 0) {
+                        memcpy(pBuf, m->data + m->pos, n);
+                        m->pos += n;
+                    }
+                    *pBytes_actually_read = (unsigned char)n;
+                    return 0;
+                }
+
+                int decode_jpeg_32x16(const uint8_t *jpeg_data, uint32_t jpeg_size, uint8_t *out_rgb) {
+                    mem_buf_t mb = { jpeg_data, jpeg_size, 0 };
+                    pjpeg_image_info_t info;
+                    if (pjpeg_decode_init(&info, read_cb, &mb, 0) != 0) return -1;
+                    if (info.m_width != 32 || info.m_height != 16) return -2;
+
+                    for (int mcu_x = 0; mcu_x < info.m_MCUSPerRow; ++mcu_x) {
+                        if (pjpeg_decode_mcu() != 0) return -3;
+                        for (int by = 0; by < 2; ++by) {
+                            for (int bx = 0; bx < 2; ++bx) {
+                                int blk_off = (by * 2 + bx) * 64;
+                                for (int py = 0; py < 8; ++py) {
+                                    for (int px = 0; px < 8; ++px) {
+                                        int x = mcu_x * 16 + bx * 8 + px;
+                                        int y = by * 8 + py;
+                                        int idx = (y * 32 + x) * 3;
+                                        int s = blk_off + py * 8 + px;
+                                        out_rgb[idx + 0] = info.m_pMCUBufR[s];
+                                        out_rgb[idx + 1] = info.m_pMCUBufG[s];
+                                        out_rgb[idx + 2] = info.m_pMCUBufB[s];
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    return 0;
+                }
+                """,
+                encoding="utf-8",
+            )
+            subprocess.run(
+                [
+                    "gcc",
+                    "-O3",
+                    "-shared",
+                    "-fPIC",
+                    f"-I{inc_dir}",
+                    str(c_src),
+                    str(wrapper_c),
+                    "-o",
+                    str(so_path),
+                ],
+                check=True,
+            )
+
+            lib = ctypes.CDLL(str(so_path))
+            lib.decode_jpeg_32x16.argtypes = [
+                ctypes.c_char_p,
+                ctypes.c_uint32,
+                ctypes.POINTER(ctypes.c_uint8),
+            ]
+            lib.decode_jpeg_32x16.restype = ctypes.c_int
+
+            # Build a 32x16 4:2:0 JPEG: left 16x16 MCU = saturated red (255, 0, 0),
+            # right 16x16 MCU = neutral gray (200, 200, 200) where Cb=128, Cr=128
+            img = Image.new("RGB", (32, 16))
+            for y in range(16):
+                for x in range(16):
+                    img.putpixel((x, y), (255, 0, 0))
+                for x in range(16, 32):
+                    img.putpixel((x, y), (200, 200, 200))
+
+            bio = io.BytesIO()
+            img.save(bio, format="JPEG", quality=95, subsampling="4:2:0")
+            jpeg_bytes = bio.getvalue()
+
+            out_buf = (ctypes.c_uint8 * (32 * 16 * 3))()
+            rc = lib.decode_jpeg_32x16(jpeg_bytes, len(jpeg_bytes), out_buf)
+            self.assertEqual(rc, 0)
+
+            # Verify left MCU is saturated red
+            for y in range(16):
+                for x in range(16):
+                    idx = (y * 32 + x) * 3
+                    r, g, b = out_buf[idx], out_buf[idx + 1], out_buf[idx + 2]
+                    self.assertGreater(r, 240)
+                    self.assertLess(g, 15)
+                    self.assertLess(b, 15)
+
+            # Verify right MCU is strictly neutral gray (R == G == B ~= 200), zero chroma bleed
+            for y in range(16):
+                for x in range(16, 32):
+                    idx = (y * 32 + x) * 3
+                    r, g, b = out_buf[idx], out_buf[idx + 1], out_buf[idx + 2]
+                    self.assertEqual(r, g)
+                    self.assertEqual(g, b)
+                    self.assertAlmostEqual(r, 200, delta=3)
+
 
 if __name__ == "__main__":
     unittest.main()
