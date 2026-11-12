@@ -172,12 +172,17 @@ void vflash_audio_update(void)
                 s_underrun_count++;
             }
             s_queued_samples = 0;
-            /* Pause voice on underrun to stop reading empty buffer.
-             * It will re-arm when write reaches s_prebuffer_threshold again. */
-            SOUND_REG(0x1018) = (s_channels == 2) ? 0x03u : 0x01u;
-            s_hardware_started = false;
-            s_write_idx = 0;
-            s_last_hw_idx = 0;
+            /* Keep hardware voice running! The consumed buffer was already zeroed above,
+             * so it reads silence without cutting out or requiring a restart cycle.
+             * Align write pointer safely ahead of read index to resume cleanly. */
+            s_write_idx = (hw_idx + 512u) & VFLASH_AUDIO_RING_MASK;
+            for (uint32_t k = 0; k < 512u; ++k) {
+                uint32_t z = (hw_idx + k) & VFLASH_AUDIO_RING_MASK;
+                s_ring_left[z] = 0;
+                if (s_channels == 2) {
+                    s_ring_right[z] = 0;
+                }
+            }
         } else {
             s_queued_samples -= consumed;
         }

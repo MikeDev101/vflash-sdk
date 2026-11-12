@@ -78,7 +78,7 @@ typedef struct vflash_video_player {
     uint8_t chunk_buf[VFLASH_VIDEO_CHUNK_BUF_SIZE] __attribute__((aligned(4)));
 
     /* Audio scratch buffer */
-    int16_t audio_pcm_buf[2048] __attribute__((aligned(4)));
+    int16_t audio_pcm_buf[4096] __attribute__((aligned(4)));
 } vflash_video_player_t;
 
 int vflash_video_open(vflash_video_player_t *player, const char *path, int x, int y);

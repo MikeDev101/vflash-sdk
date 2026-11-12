@@ -6,6 +6,7 @@
 #include "vflash/draw.h"
 #include "vflash/loading.h"
 #include <stddef.h>
+#include <string.h>
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -113,46 +114,43 @@ static void clear_letterbox_borders(vflash_framebuffer_t *fb, const vflash_video
 {
     if (player->dst_y > 0) {
         /* Top letterbox */
-        draw_rect(fb, 0, 0, VFLASH_WIDTH, player->dst_y, 0x000000);
+        memset(fb->pixels, 0, VFLASH_WIDTH * player->dst_y * sizeof(uint16_t));
         /* Bottom letterbox */
         int bot_start = player->dst_y + (int)player->height;
         if (bot_start < (int)VFLASH_HEIGHT) {
-            draw_rect(fb, 0, bot_start, VFLASH_WIDTH, (int)VFLASH_HEIGHT - bot_start, 0x000000);
+            memset(fb->pixels + bot_start * VFLASH_WIDTH, 0,
+                   VFLASH_WIDTH * ((int)VFLASH_HEIGHT - bot_start) * sizeof(uint16_t));
         }
     }
     if (player->dst_x > 0) {
-        /* Left pillarbox */
-        draw_rect(fb, 0, player->dst_y, player->dst_x, (int)player->height, 0x000000);
-        /* Right pillarbox */
+        /* Pillarboxes */
+        int w_left = player->dst_x;
         int right_start = player->dst_x + (int)player->width;
-        if (right_start < (int)VFLASH_WIDTH) {
-            draw_rect(fb, right_start, player->dst_y, (int)VFLASH_WIDTH - right_start, (int)player->height, 0x000000);
+        int w_right = (right_start < (int)VFLASH_WIDTH) ? ((int)VFLASH_WIDTH - right_start) : 0;
+        for (int y = player->dst_y; y < player->dst_y + (int)player->height; ++y) {
+            memset(fb->pixels + y * fb->stride, 0, w_left * sizeof(uint16_t));
+            if (w_right > 0) {
+                memset(fb->pixels + y * fb->stride + right_start, 0, w_right * sizeof(uint16_t));
+            }
         }
     }
 }
 
 static void draw_hud_overlay(vflash_framebuffer_t *fb, const vflash_video_stats_t *stats)
 {
-    if (!s_show_hud) {
-        clear_letterbox_borders(fb, &s_player);
-        return;
-    }
+    /* Always clear letterbox and pillarbox borders to solid black so no previous video or artifacts leak */
+    clear_letterbox_borders(fb, &s_player);
 
-    /* Clean pillarbox bars on sides if video is narrower than screen */
-    if (s_player.dst_x > 0) {
-        draw_rect(fb, 0, 0, s_player.dst_x, VFLASH_HEIGHT, 0x000000);
-        int right_start = s_player.dst_x + (int)s_player.width;
-        if (right_start < (int)VFLASH_WIDTH) {
-            draw_rect(fb, right_start, 0, (int)VFLASH_WIDTH - right_start, VFLASH_HEIGHT, 0x000000);
-        }
+    if (!s_show_hud) {
+        return;
     }
 
     int top_y = 2;
     int bot_y = VFLASH_HEIGHT - 22;
 
-    /* Explicitly clear HUD background rectangles so text never overlaps or leaves phantom glyphs */
-    draw_rect(fb, 0, 0, VFLASH_WIDTH, 22, (s_player.dst_y >= 22) ? 0x000000 : 0x081018);
-    draw_rect(fb, 0, VFLASH_HEIGHT - 24, VFLASH_WIDTH, 24, (s_player.dst_y + (int)s_player.height <= VFLASH_HEIGHT - 24) ? 0x000000 : 0x081018);
+    /* Explicitly clear HUD background rectangles to black so text never overlaps or leaves phantom glyphs */
+    memset(fb->pixels, 0, VFLASH_WIDTH * 22 * sizeof(uint16_t));
+    memset(fb->pixels + (VFLASH_HEIGHT - 24) * VFLASH_WIDTH, 0, VFLASH_WIDTH * 24 * sizeof(uint16_t));
 
     /* Top HUD: Title, Resolution, FPS, MMU */
     char line1[64] = "BAD APPLE!! ";
@@ -232,15 +230,14 @@ static bool load_profile(int profile_idx)
     vflash_audio_init(NULL);
 
     /* Wipe BOTH front and back framebuffers completely to black (0x000000) */
-    extern uint16_t video_pixels[];
-#ifdef VFLASH_DOUBLE_BUFFER
-    extern uint16_t video_back_pixels[];
-#endif
-    for (uint32_t i = 0; i < VFLASH_WIDTH * VFLASH_HEIGHT; ++i) {
-        video_pixels[i] = 0;
-#ifdef VFLASH_DOUBLE_BUFFER
-        video_back_pixels[i] = 0;
-#endif
+    vflash_framebuffer_t blank_fb;
+    if (vflash_video_backbuffer(&blank_fb)) {
+        draw_clear(&blank_fb, 0x000000);
+        vflash_video_present(&blank_fb);
+    }
+    if (vflash_video_backbuffer(&blank_fb)) {
+        draw_clear(&blank_fb, 0x000000);
+        vflash_video_present(&blank_fb);
     }
 
     if (vflash_video_open(&s_player, path, 0, 0) != 0) {
@@ -352,11 +349,8 @@ void vflash_main(void)
     vflash_loading_set_status("Decoding first frame");
     vflash_loading_render();
 
-    uint16_t t_frame_start = vflash_clock_ticks();
-    vflash_video_play(&s_player);
-    milestone_first_frame = ((uint16_t)(vflash_clock_ticks() - t_frame_start)) / 10u;
-
     milestone_total_ms = ((uint16_t)(vflash_clock_ticks() - t_boot)) / 10u;
+    milestone_first_frame = milestone_total_ms;
     vflash_loading_set_progress(100);
     vflash_loading_set_status("Ready");
     vflash_loading_render();
@@ -379,6 +373,9 @@ void vflash_main(void)
     startup_status = 0x600D600Du;
     bad_apple_status = 0x42415031u; /* 'BAP1' */
     s_last_fps_ticks = vflash_clock_ticks();
+
+    /* Start playback synchronized with main loop entry */
+    vflash_video_play(&s_player);
 
     /* =========================================================================
      * MAIN PLAYBACK & DIAGNOSTIC LOOP
@@ -448,6 +445,7 @@ void vflash_main(void)
         }
 
         int frame_ready = vflash_video_update(&s_player, &render_fb);
+
         if (frame_ready) {
             bad_apple_frames++;
             s_fps_frame_count++;

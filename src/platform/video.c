@@ -1,6 +1,7 @@
 #include "vflash/video.h"
 #include "vflash/draw.h"
 #include "vflash/clock.h"
+#include "vflash/audio.h"
 #ifdef VFLASH_DOUBLE_BUFFER
 #include "vflash/clock.h"
 uint16_t video_back_pixels[VFLASH_WIDTH * VFLASH_HEIGHT] __attribute__((aligned(64)));
@@ -73,6 +74,7 @@ int vflash_video_present(const vflash_framebuffer_t *fb)
     VE_REG(VE_STATUS) = 2;
     uint16_t start = vflash_clock_ticks();
     while (!(VE_REG(VE_STATUS) & 2)) {
+        vflash_audio_update();
         if ((uint16_t)(vflash_clock_ticks() - start) >= 1000) return 0;
     }
     VE_REG(VE_ADDRESS0) = (uint32_t)(uintptr_t)fb->pixels;

@@ -132,7 +132,9 @@ int vflash_cd_init(void)
     CD_REG(0x60) &= ~0x00F00000u;
     CD_REG(0x64) = 0xFFFFFFFFu;
     CD_REG(0x74) = 2;
-    cd_dsp_cmd(32, 0x9F209000u); /* Enable 2x drive read speed (150 sectors/sec) */
+    cd_dsp_cmd(32, 0x9F209000u); /* Enable 2x base DSP speed */
+    cd_dsp_cmd(32, 0xD0C00040u); /* Sony CXD3068Q CAV-W 4x spindle velocity */
+    cd_dsp_cmd(32, 0xE6670000u); /* Spindle mode 0x65 for 4x transfer rate (300 sectors/sec) */
     return 0;
 }
 

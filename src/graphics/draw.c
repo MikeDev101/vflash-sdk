@@ -50,6 +50,27 @@ void draw_text(vflash_framebuffer_t *fb, int32_t x, int32_t y,
                const char *text, uint32_t rgb, uint32_t scale)
 {
     if (!draw_valid(fb) || !text || !scale || scale > 16) return;
+    uint16_t color = draw_color(rgb);
+
+    if (scale == 1) {
+        if (y < 0 || y + 7 > (int32_t)fb->height) return;
+        int32_t cursor = x;
+        for (; *text && cursor + 5 <= (int32_t)fb->width; ++text, cursor += 6) {
+            if (cursor < 0) continue;
+            const uint8_t *glyph = font_glyph((unsigned char)*text);
+            for (uint32_t row = 0; row < 7; ++row) {
+                uint8_t g = glyph[row];
+                uint16_t *dst = fb->pixels + (y + (int32_t)row) * fb->stride + cursor;
+                if (g & 16) dst[0] = color;
+                if (g & 8)  dst[1] = color;
+                if (g & 4)  dst[2] = color;
+                if (g & 2)  dst[3] = color;
+                if (g & 1)  dst[4] = color;
+            }
+        }
+        return;
+    }
+
     int64_t cursor = x;
     for (; *text && cursor < fb->width; ++text, cursor += 6 * scale) {
         const uint8_t *glyph = font_glyph((unsigned char)*text);

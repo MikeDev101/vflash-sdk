@@ -227,6 +227,7 @@ static pjpeg_need_bytes_callback_t g_pNeedBytesCallback;
 static void *g_pCallback_data;
 static uint8 gCallbackStatus;
 static uint8 gReduce;
+static uint8 gBlockMaxK;
 //------------------------------------------------------------------------------
 static void fillInBuf(void)
 {
@@ -1767,9 +1768,26 @@ static PJPG_INLINE void convertCr(uint8 dstOfs)
 /*----------------------------------------------------------------------------*/
 static PJPG_INLINE void transformBlock(uint8 mcuBlock)
 {
-   idctRows();
-   idctCols();
-   
+   if (gBlockMaxK == 0)
+   {
+      uint8 c = clamp(PJPG_DESCALE(gCoeffBuf[0]) + 128);
+      /* In YH2V2, blocks 4 and 5 are Cb and Cr subsampled 2x2.
+       * If Cb or Cr has only DC and c == 128 (neutral chroma, as in Bad Apple/grayscale),
+       * the chroma adjustment to R, G, B evaluates to exactly 0, making upsampling a complete no-op! */
+      if (gScanType == PJPG_YH2V2 && (mcuBlock == 4 || mcuBlock == 5) && c == 128)
+      {
+         return;
+      }
+      int16 c16 = (int16)c;
+      for (uint8 i = 0; i < 64; i++)
+         gCoeffBuf[i] = c16;
+   }
+   else
+   {
+      idctRows();
+      idctCols();
+   }
+
    switch (gScanType)
    {
       case PJPG_GRAYSCALE:
@@ -2205,6 +2223,7 @@ static uint8 decodeNextMCU(void)
       else
       {
          // Decode and dequantize AC coefficients
+         gBlockMaxK = 0;
          for (k = 1; k < 64; k++)
          {
             uint16 extraBits;
@@ -2237,7 +2256,8 @@ static uint8 decodeNextMCU(void)
 
                ac = huffExtend(extraBits, s);
                
-               gCoeffBuf[ZAG[k]] = ac * pQ[k]; 
+               gCoeffBuf[ZAG[k]] = ac * pQ[k];
+               gBlockMaxK = k;
             }
             else
             {

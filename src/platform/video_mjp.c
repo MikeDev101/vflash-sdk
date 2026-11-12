@@ -59,15 +59,30 @@ static uint32_t decode_adpcm_chunk(const uint8_t *input, uint32_t in_size,
     return out_count;
 }
 
+static uint16_t s_lut555[256];
+static bool s_lut555_inited = false;
+
+static void ensure_lut555(void) {
+    if (!s_lut555_inited) {
+        for (int i = 0; i < 256; ++i) {
+            uint16_t v = (uint16_t)((i >> 3) & 0x1F);
+            s_lut555[i] = (uint16_t)(v | (v << 5) | (v << 10));
+        }
+        s_lut555_inited = true;
+    }
+}
+
 static inline uint16_t rgb_to_bgr555(uint8_t r, uint8_t g, uint8_t b) {
+    if (r == g && g == b) {
+        return s_lut555[r];
+    }
     return (uint16_t)(((r >> 3) & 0x1F) |
                       (((g >> 3) & 0x1F) << 5) |
                       (((b >> 3) & 0x1F) << 10));
 }
 
 static inline uint16_t gray_to_bgr555(uint8_t y) {
-    uint16_t v = (y >> 3) & 0x1F;
-    return (uint16_t)(v | (v << 5) | (v << 10));
+    return s_lut555[y];
 }
 
 static unsigned char pjpeg_stream_callback(unsigned char *pBuf, unsigned char buf_size,
@@ -87,6 +102,7 @@ static unsigned char pjpeg_stream_callback(unsigned char *pBuf, unsigned char bu
 }
 
 static int decode_and_render_frame(vflash_video_player_t *player, vflash_framebuffer_t *fb) {
+    ensure_lut555();
     pjpeg_image_info_t info;
     unsigned char err = pjpeg_decode_init(&info, pjpeg_stream_callback, player, 0);
     if (err) return -1;
@@ -317,6 +333,7 @@ int vflash_video_play(vflash_video_player_t *player) {
         player->current_frame = 0;
         player->last_tick = vflash_clock_ticks();
         player->tick_accumulator = 0;
+        player->frame_decoded = false;
     } else if (player->state == VFLASH_VIDEO_PAUSED) {
         player->last_tick = vflash_clock_ticks();
         if (player->audio_enabled) {
@@ -342,6 +359,8 @@ int vflash_video_stop(vflash_video_player_t *player) {
     if (!player || player->fd < 0) return -1;
     vflash_fs_seek(player->fd, (int32_t)player->data_start_offset, SEEK_SET);
     player->current_frame = 0;
+    player->tick_accumulator = 0;
+    player->frame_decoded = false;
     player->state = VFLASH_VIDEO_STOPPED;
     if (player->audio_enabled) {
         vflash_audio_pause(true);
@@ -397,6 +416,19 @@ int vflash_video_update(vflash_video_player_t *player, vflash_framebuffer_t *fb)
                 continue;
             }
 
+            if (chunk_hdr[0] == '0' && chunk_hdr[1] == '0' && chunk_hdr[2] == 'd' && chunk_hdr[3] == 'c') {
+                /* Check if playback has slipped behind real-time schedule.
+                 * If tick_accumulator is more than 1 frame behind target deadline,
+                 * drop the video decode to catch up, but still process following audio! */
+                uint32_t target_tick = (uint32_t)(((uint64_t)player->current_frame * 10000u) / player->fps);
+                if (player->tick_accumulator > target_tick + (player->ticks_per_frame * 3u) / 2u) {
+                    vflash_fs_seek(player->fd, (int32_t)(chunk_size + (chunk_size & 1)), SEEK_CUR);
+                    player->current_frame++;
+                    player->dropped_frames++;
+                    continue;
+                }
+            }
+
             rd = vflash_fs_read(player->fd, player->chunk_buf, chunk_size);
             if (chunk_size & 1) {
                 uint8_t pad;
@@ -413,7 +445,7 @@ int vflash_video_update(vflash_video_player_t *player, vflash_framebuffer_t *fb)
                     if (player->audio_flags == 0x0001) {
                         /* ADPCM */
                         uint32_t samples = decode_adpcm_chunk(player->chunk_buf, chunk_size,
-                                                             player->audio_pcm_buf, 2048);
+                                                             player->audio_pcm_buf, 4096);
                         vflash_audio_write(player->audio_pcm_buf, samples * 2);
                         player->audio_samples_queued += samples;
                     } else if (player->audio_flags == 0x0004) {
@@ -446,22 +478,60 @@ int vflash_video_update(vflash_video_player_t *player, vflash_framebuffer_t *fb)
 
                 player->current_frame++;
                 player->frame_decoded = true;
+
+                /* In MJP bitstreams, each video frame chunk (00dc) is immediately followed by its
+                 * corresponding audio chunk (01wb). Ingest it immediately so the audio DMA ring
+                 * buffer is continuously saturated ahead of presentation, preventing starvation. */
+                if (player->audio_enabled) {
+                    uint8_t a_hdr[12];
+                    int32_t ard = vflash_fs_read(player->fd, a_hdr, 12);
+                    if (ard == 12 && a_hdr[0] == '0' && a_hdr[1] == '1' && a_hdr[2] == 'w' && a_hdr[3] == 'b') {
+                        uint32_t asize = a_hdr[8] | ((uint32_t)a_hdr[9] << 8) |
+                                         ((uint32_t)a_hdr[10] << 16) | ((uint32_t)a_hdr[11] << 24);
+                        if (asize <= VFLASH_VIDEO_CHUNK_BUF_SIZE) {
+                            ard = vflash_fs_read(player->fd, player->chunk_buf, asize);
+                            if (asize & 1) {
+                                uint8_t pad;
+                                vflash_fs_read(player->fd, &pad, 1);
+                            }
+                            if (ard == (int32_t)asize) {
+                                if (player->audio_flags == 0x0001) {
+                                    uint32_t samples = decode_adpcm_chunk(player->chunk_buf, asize,
+                                                                         player->audio_pcm_buf, 4096);
+                                    vflash_audio_write(player->audio_pcm_buf, samples * 2);
+                                    player->audio_samples_queued += samples;
+                                } else if (player->audio_flags == 0x0004) {
+                                    vflash_audio_write(player->chunk_buf, asize);
+                                    player->audio_samples_queued += (asize / 2);
+                                }
+                            }
+                        }
+                    } else if (ard > 0) {
+                        /* Rewind header bytes if not an audio chunk */
+                        vflash_fs_seek(player->fd, -ard, SEEK_CUR);
+                    }
+                }
                 break;
             }
         }
     }
 
-    /* Keep audio hardware DMA pumping */
+    /* Keep audio hardware DMA pumping and refresh tick accumulator after decode */
     vflash_audio_update();
+    now = vflash_clock_ticks();
+    player->tick_accumulator += (uint16_t)(now - player->last_tick);
+    player->last_tick = now;
 
-    /* Check presentation timer deadline */
-    if (player->tick_accumulator < player->ticks_per_frame) {
+    /* Check presentation timer deadline.
+     * Use cumulative target tick relative to playback start to eliminate drift:
+     * target_tick = (frame_idx * 10000) / fps, where frame_idx = current_frame - 1.
+     * Lead deadline provides half a V-blank (~80 ticks / 8.0ms) of presentation headroom
+     * so vflash_video_present() cleanly latches the exact target V-Blank without slipping. */
+    uint32_t frame_idx = (player->current_frame > 0) ? (player->current_frame - 1) : 0;
+    uint32_t target_tick = (uint32_t)(((uint64_t)frame_idx * 10000u) / player->fps);
+    uint32_t deadline = (target_tick >= 80u) ? (target_tick - 80u) : 0;
+    if (player->tick_accumulator < deadline) {
         return 0;
-    }
-
-    player->tick_accumulator -= player->ticks_per_frame;
-    if (player->tick_accumulator > player->ticks_per_frame * 2) {
-        player->tick_accumulator = 0;
     }
 
     /* Frame ready to be flipped and presented */
@@ -471,6 +541,8 @@ int vflash_video_update(vflash_video_player_t *player, vflash_framebuffer_t *fb)
         if (player->loop) {
             vflash_fs_seek(player->fd, (int32_t)player->data_start_offset, SEEK_SET);
             player->current_frame = 0;
+            player->tick_accumulator = 0;
+            player->last_tick = vflash_clock_ticks();
         } else {
             player->state = VFLASH_VIDEO_FINISHED;
         }
