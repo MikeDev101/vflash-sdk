@@ -29,6 +29,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <string.h>
 
 #define REG(a) (*(volatile uint32_t *)(uintptr_t)(a))
 
@@ -320,52 +321,238 @@ static bool check_abort_to_menu(void)
 }
 
 /* --- Background Music (BGM) Streamer --- */
-#define BGM_CHUNK_SIZE (16 * 1024)
+#define BGM_PLAYBACK_RATE 22050u
+#define BGM_RAW_BUF_SIZE  (64 * 1024)
+#define BGM_CHUNK_READ    (16 * 1024)
+#define BGM_OUT_FRAMES    4096u
 
-static uint8_t s_bgm_ram_chunk[BGM_CHUNK_SIZE] __attribute__((aligned(64)));
-static uint32_t s_bgm_chunk_len = 0;
-static uint32_t s_bgm_chunk_pos = 0;
-static uint32_t s_bgm_file_pos = 44;
-static uint32_t s_bgm_file_size = 0;
+typedef struct {
+    uint32_t sample_rate;
+    uint32_t data_start;
+    uint32_t data_size;
+    uint16_t channels;
+    uint16_t bits_per_sample;
+    uint16_t audio_format;
+    bool valid;
+} bgm_wav_info_t;
+
+static bgm_wav_info_t s_bgm_info;
+static uint8_t s_bgm_raw_buf[BGM_RAW_BUF_SIZE] __attribute__((aligned(64)));
+static uint32_t s_bgm_raw_len = 0;
+static uint32_t s_bgm_raw_pos = 0;
+static uint32_t s_bgm_file_pos = 0;
+
+static int16_t s_bgm_out_pcm[BGM_OUT_FRAMES * 2] __attribute__((aligned(64)));
+static uint32_t s_bgm_out_len = 0;
+static uint32_t s_bgm_out_pos = 0;
+static uint32_t s_bgm_phase_fp = 0;
+
 static int s_bgm_fd = -1;
 static bool s_bgm_active = false;
 
 static void bgm_tick(void);
 
-static void bgm_load_chunk(void)
+static bool bgm_parse_wav_header(int fd, bgm_wav_info_t *info)
 {
-    if (s_bgm_fd < 0 || s_bgm_file_size <= 44) {
-        s_bgm_chunk_len = 0;
-        s_bgm_chunk_pos = 0;
+    if (fd < 0 || !info) return false;
+    memset(info, 0, sizeof(*info));
+
+    vflash_fs_seek(fd, 0, SEEK_SET);
+
+    /* Read first 512 bytes containing RIFF, fmt, and data headers in one read */
+    uint8_t buf[512];
+    int32_t read_bytes = vflash_fs_read(fd, buf, sizeof(buf));
+    if (read_bytes < 44) return false;
+
+    if (buf[0] != 'R' || buf[1] != 'I' || buf[2] != 'F' || buf[3] != 'F' ||
+        buf[8] != 'W' || buf[9] != 'A' || buf[10] != 'V' || buf[11] != 'E') {
+        return false;
+    }
+
+    bool found_fmt = false;
+    bool found_data = false;
+    uint32_t offset = 12;
+
+    while (offset + 8 <= (uint32_t)read_bytes) {
+        const uint8_t *chk = &buf[offset];
+        uint32_t chk_size = (uint32_t)chk[4] | ((uint32_t)chk[5] << 8) |
+                            ((uint32_t)chk[6] << 16) | ((uint32_t)chk[7] << 24);
+
+        if (chk[0] == 'f' && chk[1] == 'm' && chk[2] == 't' && chk[3] == ' ') {
+            if (chk_size < 16 || offset + 8 + 16 > (uint32_t)read_bytes) return false;
+            const uint8_t *fmt = &buf[offset + 8];
+            info->audio_format = (uint16_t)fmt[0] | ((uint16_t)fmt[1] << 8);
+            info->channels = (uint16_t)fmt[2] | ((uint16_t)fmt[3] << 8);
+            info->sample_rate = (uint32_t)fmt[4] | ((uint32_t)fmt[5] << 8) |
+                                ((uint32_t)fmt[6] << 16) | ((uint32_t)fmt[7] << 24);
+            info->bits_per_sample = (uint16_t)fmt[14] | ((uint16_t)fmt[15] << 8);
+
+            found_fmt = true;
+            offset += 8 + chk_size + (chk_size & 1u);
+        } else if (chk[0] == 'd' && chk[1] == 'a' && chk[2] == 't' && chk[3] == 'a') {
+            info->data_start = offset + 8;
+            info->data_size = chk_size;
+            found_data = true;
+            break;
+        } else {
+            offset += 8 + chk_size + (chk_size & 1u);
+        }
+    }
+
+    if (!found_fmt || !found_data) return false;
+    if (info->audio_format != 1) return false; /* PCM linear only */
+    if (info->channels != 1 && info->channels != 2) return false;
+    if (info->bits_per_sample != 16 && info->bits_per_sample != 8) return false;
+    if (info->sample_rate < 4000 || info->sample_rate > 48000) return false;
+
+    info->valid = true;
+    return true;
+}
+
+static void bgm_fill_raw_buffer(void)
+{
+    if (s_bgm_fd < 0 || !s_bgm_info.valid || s_bgm_info.data_size == 0) return;
+
+    uint32_t in_frame_bytes = (uint32_t)s_bgm_info.channels * (s_bgm_info.bits_per_sample / 8u);
+    if (in_frame_bytes == 0) in_frame_bytes = 4;
+
+    /* Move unconsumed bytes to the start of the buffer */
+    uint32_t unconsumed = (s_bgm_raw_len > s_bgm_raw_pos) ? (s_bgm_raw_len - s_bgm_raw_pos) : 0;
+    if (unconsumed > 0 && s_bgm_raw_pos > 0) {
+        memmove(s_bgm_raw_buf, &s_bgm_raw_buf[s_bgm_raw_pos], unconsumed);
+    }
+    s_bgm_raw_pos = 0;
+    s_bgm_raw_len = unconsumed;
+
+    uint32_t space = BGM_RAW_BUF_SIZE - s_bgm_raw_len;
+    if (space < 2048u) return;
+
+    uint32_t data_end = s_bgm_info.data_start + s_bgm_info.data_size;
+    if (s_bgm_file_pos < s_bgm_info.data_start || s_bgm_file_pos >= data_end) {
+        s_bgm_file_pos = s_bgm_info.data_start;
+        vflash_fs_seek(s_bgm_fd, (int32_t)s_bgm_file_pos, SEEK_SET);
+    }
+
+    uint32_t remaining = data_end - s_bgm_file_pos;
+    uint32_t to_read = (space < BGM_CHUNK_READ) ? space : BGM_CHUNK_READ;
+
+    /* If file_pos is not sector-aligned, read just enough to align to the next 2048-byte sector */
+    uint32_t sec_off = s_bgm_file_pos & 2047u;
+    if (sec_off != 0) {
+        uint32_t align_bytes = 2048u - sec_off;
+        if (align_bytes < to_read) {
+            to_read = align_bytes;
+        }
+    }
+
+    uint32_t read_target = (remaining < to_read) ? remaining : to_read;
+    read_target = (read_target / in_frame_bytes) * in_frame_bytes;
+
+    if (read_target == 0) {
+        s_bgm_file_pos = s_bgm_info.data_start;
+        vflash_fs_seek(s_bgm_fd, (int32_t)s_bgm_file_pos, SEEK_SET);
+        remaining = s_bgm_info.data_size;
+        read_target = (remaining < to_read) ? remaining : to_read;
+        read_target = (read_target / in_frame_bytes) * in_frame_bytes;
+        if (read_target == 0) return;
+    }
+
+    int32_t n = vflash_fs_read(s_bgm_fd, &s_bgm_raw_buf[s_bgm_raw_len], read_target);
+    if (n > 0) {
+        uint32_t valid_bytes = ((uint32_t)n / in_frame_bytes) * in_frame_bytes;
+        s_bgm_raw_len += valid_bytes;
+        s_bgm_file_pos += valid_bytes;
+    }
+}
+
+static void bgm_resample_chunk(void)
+{
+    uint32_t in_frame_bytes = (uint32_t)s_bgm_info.channels * (s_bgm_info.bits_per_sample / 8u);
+    if (in_frame_bytes == 0) in_frame_bytes = 4;
+
+    uint32_t unconsumed = (s_bgm_raw_len > s_bgm_raw_pos) ? (s_bgm_raw_len - s_bgm_raw_pos) : 0;
+    uint32_t in_frames = unconsumed / in_frame_bytes;
+
+    if (in_frames == 0) {
+        s_bgm_out_pos = 0;
+        s_bgm_out_len = 0;
         return;
     }
 
-    if (s_bgm_file_pos >= s_bgm_file_size) {
-        s_bgm_file_pos = 44;
-    }
-    vflash_fs_seek(s_bgm_fd, (int32_t)s_bgm_file_pos, SEEK_SET);
+    const uint8_t *raw = &s_bgm_raw_buf[s_bgm_raw_pos];
 
-    uint32_t remaining = s_bgm_file_size - s_bgm_file_pos;
-    uint32_t to_read = (remaining < BGM_CHUNK_SIZE) ? remaining : BGM_CHUNK_SIZE;
-    to_read &= ~1u;
-
-    if (to_read == 0) {
-        s_bgm_file_pos = 44;
-        vflash_fs_seek(s_bgm_fd, 44, SEEK_SET);
-        remaining = s_bgm_file_size - 44;
-        to_read = (remaining < BGM_CHUNK_SIZE) ? remaining : BGM_CHUNK_SIZE;
-        to_read &= ~1u;
+    /* Fast path: Native 22050 Hz 16-bit stereo requires no resampling */
+    if (s_bgm_info.sample_rate == BGM_PLAYBACK_RATE &&
+        s_bgm_info.bits_per_sample == 16 &&
+        s_bgm_info.channels == 2) {
+        uint32_t frames_to_copy = (in_frames < BGM_OUT_FRAMES) ? in_frames : BGM_OUT_FRAMES;
+        memcpy(s_bgm_out_pcm, raw, frames_to_copy * 4u);
+        s_bgm_raw_pos += frames_to_copy * 4u;
+        s_bgm_out_pos = 0;
+        s_bgm_out_len = frames_to_copy;
+        s_bgm_phase_fp = 0;
+        return;
     }
 
-    int32_t n = vflash_fs_read(s_bgm_fd, s_bgm_ram_chunk, to_read);
-    if (n > 0) {
-        s_bgm_chunk_len = (uint32_t)n & ~1u;
-        s_bgm_chunk_pos = 0;
-        s_bgm_file_pos += s_bgm_chunk_len;
-    } else {
-        s_bgm_chunk_len = 0;
-        s_bgm_chunk_pos = 0;
+    /* Fallback path: Arbitrary sample rates with linear interpolation (requires at least 2 frames) */
+    if (in_frames < 2) {
+        s_bgm_out_pos = 0;
+        s_bgm_out_len = 0;
+        return;
     }
+
+    uint32_t step_fp = ((uint64_t)s_bgm_info.sample_rate << 16) / BGM_PLAYBACK_RATE;
+    uint32_t out_count = 0;
+
+    while (out_count < BGM_OUT_FRAMES) {
+        uint32_t idx = s_bgm_phase_fp >> 16;
+        if (idx + 1 >= in_frames) {
+            break;
+        }
+        uint32_t frac = s_bgm_phase_fp & 0xFFFF;
+
+        int32_t l0, l1, r0, r1;
+        if (s_bgm_info.bits_per_sample == 16) {
+            const int16_t *in16 = (const int16_t *)raw;
+            if (s_bgm_info.channels == 2) {
+                l0 = in16[idx * 2 + 0];
+                l1 = in16[(idx + 1) * 2 + 0];
+                r0 = in16[idx * 2 + 1];
+                r1 = in16[(idx + 1) * 2 + 1];
+            } else {
+                l0 = r0 = in16[idx];
+                l1 = r1 = in16[idx + 1];
+            }
+        } else {
+            if (s_bgm_info.channels == 2) {
+                l0 = ((int32_t)raw[idx * 2 + 0] - 128) << 8;
+                l1 = ((int32_t)raw[(idx + 1) * 2 + 0] - 128) << 8;
+                r0 = ((int32_t)raw[idx * 2 + 1] - 128) << 8;
+                r1 = ((int32_t)raw[(idx + 1) * 2 + 1] - 128) << 8;
+            } else {
+                l0 = r0 = ((int32_t)raw[idx] - 128) << 8;
+                l1 = r1 = ((int32_t)raw[idx + 1] - 128) << 8;
+            }
+        }
+
+        s_bgm_out_pcm[out_count * 2 + 0] = (int16_t)(l0 + (((l1 - l0) * (int32_t)frac) >> 16));
+        s_bgm_out_pcm[out_count * 2 + 1] = (int16_t)(r0 + (((r1 - r0) * (int32_t)frac) >> 16));
+        out_count++;
+        s_bgm_phase_fp += step_fp;
+    }
+
+    uint32_t consumed_frames = s_bgm_phase_fp >> 16;
+    if (consumed_frames > in_frames) {
+        consumed_frames = in_frames;
+    }
+    s_bgm_phase_fp -= (consumed_frames << 16);
+    s_bgm_raw_pos += consumed_frames * in_frame_bytes;
+    if (s_bgm_raw_pos > s_bgm_raw_len) {
+        s_bgm_raw_pos = s_bgm_raw_len;
+    }
+
+    s_bgm_out_pos = 0;
+    s_bgm_out_len = out_count;
 }
 
 static void bgm_stop(void)
@@ -373,6 +560,11 @@ static void bgm_stop(void)
     if (s_bgm_active) {
         vflash_audio_shutdown();
         s_bgm_active = false;
+        s_bgm_raw_len = 0;
+        s_bgm_raw_pos = 0;
+        s_bgm_out_len = 0;
+        s_bgm_out_pos = 0;
+        s_bgm_phase_fp = 0;
     }
 }
 
@@ -391,63 +583,98 @@ static void bgm_start(void)
         return;
     }
 
-    if (s_bgm_file_size == 0) {
-        int32_t sz = vflash_fs_seek(s_bgm_fd, 0, SEEK_END);
-        if (sz <= 44) {
+    if (!s_bgm_info.valid) {
+        if (!bgm_parse_wav_header(s_bgm_fd, &s_bgm_info)) {
             vflash_fs_close(s_bgm_fd);
             s_bgm_fd = -1;
             return;
         }
-        s_bgm_file_size = (uint32_t)sz;
     }
 
+    s_bgm_file_pos = s_bgm_info.data_start;
+    vflash_fs_seek(s_bgm_fd, (int32_t)s_bgm_file_pos, SEEK_SET);
+    s_bgm_raw_len = 0;
+    s_bgm_raw_pos = 0;
+    s_bgm_out_len = 0;
+    s_bgm_out_pos = 0;
+    s_bgm_phase_fp = 0;
+
     vflash_audio_config_t cfg = {
-        .sample_rate = 22050,
-        .channels = 1,
+        .sample_rate = BGM_PLAYBACK_RATE,
+        .channels = 2,
         .format = VFLASH_AUDIO_FMT_S16LE,
         .buffer_samples = 16384
     };
     if (vflash_audio_init(&cfg)) {
         s_bgm_active = true;
-        if (s_bgm_chunk_pos >= s_bgm_chunk_len) {
-            bgm_load_chunk();
+
+        /* Pre-fill initial audio chunks before starting playback */
+        for (int i = 0; i < 2; ++i) {
+            bgm_fill_raw_buffer();
+            bgm_resample_chunk();
+            if (s_bgm_out_len == 0) break;
+
+            uint32_t avail = vflash_audio_get_available_bytes();
+            uint32_t rem_bytes = (s_bgm_out_len - s_bgm_out_pos) * 4u;
+            uint32_t to_write = (rem_bytes < avail) ? rem_bytes : avail;
+            to_write &= ~3u;
+            if (to_write == 0) break;
+
+            uint32_t written = vflash_audio_write((const uint8_t *)&s_bgm_out_pcm[s_bgm_out_pos * 2], to_write);
+            if (written == 0) break;
+            s_bgm_out_pos += (written >> 2);
         }
-        bgm_tick();
     }
 }
 
 static void bgm_tick(void)
 {
-    if (!s_bgm_active) return;
-
-    while (1) {
-        uint32_t avail = vflash_audio_get_available_bytes();
-        if (avail < 1024) {
-            break;
-        }
-
-        if (s_bgm_chunk_pos >= s_bgm_chunk_len) {
-            bgm_load_chunk();
-            if (s_bgm_chunk_len == 0) {
-                break;
-            }
-        }
-
-        uint32_t chunk_remaining = s_bgm_chunk_len - s_bgm_chunk_pos;
-        uint32_t to_write = (chunk_remaining < avail) ? chunk_remaining : avail;
-        to_write &= ~1u;
-        if (to_write == 0) {
-            break;
-        }
-
-        uint32_t written = vflash_audio_write(s_bgm_ram_chunk + s_bgm_chunk_pos, to_write);
-        if (written == 0) {
-            break;
-        }
-        s_bgm_chunk_pos += written;
-    }
+    if (!s_bgm_active || !s_bgm_info.valid) return;
 
     vflash_audio_update();
+
+    uint32_t queued_samples = vflash_audio_get_queued_bytes() >> 2;
+
+    /* Write any pending resampled samples from previous decode */
+    if (s_bgm_out_pos < s_bgm_out_len) {
+        uint32_t avail = vflash_audio_get_available_bytes();
+        if (avail >= 1024) {
+            uint32_t rem_bytes = (s_bgm_out_len - s_bgm_out_pos) * 4u;
+            uint32_t to_write = (rem_bytes < avail) ? rem_bytes : avail;
+            to_write &= ~3u;
+            if (to_write > 0) {
+                uint32_t written = vflash_audio_write((const uint8_t *)&s_bgm_out_pcm[s_bgm_out_pos * 2], to_write);
+                s_bgm_out_pos += (written >> 2);
+            }
+        }
+    }
+
+    /* Only refill if queued audio in the hardware ring has dropped below threshold */
+    if (queued_samples < 8192u) {
+        /* If raw buffer is low, read a chunk from CD */
+        uint32_t unconsumed = (s_bgm_raw_len > s_bgm_raw_pos) ? (s_bgm_raw_len - s_bgm_raw_pos) : 0;
+        if (unconsumed < BGM_CHUNK_READ) {
+            bgm_fill_raw_buffer();
+        }
+
+        /* Resample and write until queue has adequate cushion or raw data exhausted */
+        while (vflash_audio_get_available_bytes() >= 2048u * 4u) {
+            if (s_bgm_out_pos >= s_bgm_out_len) {
+                bgm_resample_chunk();
+                if (s_bgm_out_len == 0) break;
+            }
+
+            uint32_t avail = vflash_audio_get_available_bytes();
+            uint32_t rem_bytes = (s_bgm_out_len - s_bgm_out_pos) * 4u;
+            uint32_t to_write = (rem_bytes < avail) ? rem_bytes : avail;
+            to_write &= ~3u;
+            if (to_write == 0) break;
+
+            uint32_t written = vflash_audio_write((const uint8_t *)&s_bgm_out_pcm[s_bgm_out_pos * 2], to_write);
+            if (written == 0) break;
+            s_bgm_out_pos += (written >> 2);
+        }
+    }
 }
 
 static void wait_for_ok_button(vflash_framebuffer_t *fb)

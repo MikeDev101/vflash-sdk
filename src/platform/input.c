@@ -225,12 +225,16 @@ void vflash_input_poll(void)
 
                             uint32_t btns = 0;
                             if (raw_btns & (1u << 2))  btns |= VFLASH_BTN_OK;
-                            if (raw_btns & (1u << 12)) btns |= VFLASH_BTN_RED;
+                            if (raw_btns & (1u << 3))  btns |= VFLASH_BTN_STICK;
+                            if (raw_btns & (1u << 10)) btns |= VFLASH_BTN_EXIT;
                             if (raw_btns & (1u << 11)) btns |= VFLASH_BTN_YELLOW;
-                            if (raw_btns & (1u << 14)) btns |= VFLASH_BTN_GREEN;
+                            if (raw_btns & (1u << 12)) btns |= VFLASH_BTN_RED;
                             if (raw_btns & (1u << 13)) btns |= VFLASH_BTN_BLUE;
+                            if (raw_btns & (1u << 14)) btns |= VFLASH_BTN_GREEN;
 
-                            s_state.buttons = (s_state.buttons & ~(VFLASH_BTN_OK | VFLASH_BTN_RED | VFLASH_BTN_YELLOW | VFLASH_BTN_GREEN | VFLASH_BTN_BLUE)) | btns;
+                            uint32_t mask = VFLASH_BTN_OK | VFLASH_BTN_STICK | VFLASH_BTN_EXIT |
+                                            VFLASH_BTN_RED | VFLASH_BTN_YELLOW | VFLASH_BTN_GREEN | VFLASH_BTN_BLUE;
+                            s_state.buttons = (s_state.buttons & ~mask) | btns;
                             got_poll_response = true;
                             s_state.connected = true;
                             s_consecutive_misses = 0;
@@ -264,8 +268,10 @@ void vflash_input_poll(void)
     if (s_state.axis_y < -DEADZONE_INT16) dir_buttons |= VFLASH_BTN_UP;
     if (s_state.axis_y > DEADZONE_INT16)  dir_buttons |= VFLASH_BTN_DOWN;
 
-    /* Combine OK button, directional buttons, and any async button triggers */
-    uint32_t cur_buttons = (s_state.buttons & VFLASH_BTN_OK) | dir_buttons | s_async_buttons;
+    /* Combine discrete buttons, directional buttons, and any async button triggers */
+    uint32_t preserved = s_state.buttons & (VFLASH_BTN_OK | VFLASH_BTN_STICK | VFLASH_BTN_EXIT |
+                                            VFLASH_BTN_RED | VFLASH_BTN_YELLOW | VFLASH_BTN_GREEN | VFLASH_BTN_BLUE);
+    uint32_t cur_buttons = preserved | dir_buttons | s_async_buttons;
     s_async_buttons = 0; /* Consume one-shot triggers */
 
     s_state.buttons = cur_buttons;

@@ -78,7 +78,7 @@ bool vflash_audio_init(const vflash_audio_config_t *config)
      * When VOICE_REG(v, 0x0C) has bit 2 set (0x1F4), the hardware voice base rate is 22050 Hz.
      * Step value 4096 (1<<12) corresponds to unity rate (1.0x pitch multiplier).
      * For 22050 Hz playback: step = 4096.
-     * For arbitrary rates: (sample_rate * 4096) / 22050, clamped to max hardware step 8191. */
+     * For arbitrary rates: (sample_rate * 4096) / 22050, clamped to max hardware step 8191 (0x1FFF). */
     uint32_t step = (s_sample_rate == 22050u) ? 4096u : ((s_sample_rate * 4096u) / 22050u);
     if (step == 0) step = 1;
     if (step > 8191) step = 8191;
@@ -164,6 +164,14 @@ void vflash_audio_update(void)
             s_queued_samples = 0;
             /* Align write pointer slightly ahead of hardware read index */
             s_write_idx = (hw_idx + 64u) & VFLASH_AUDIO_RING_MASK;
+            /* Zero out the alignment gap to prevent playing stale audio */
+            for (uint32_t k = 0; k < 64u; ++k) {
+                uint32_t z = (hw_idx + k) & VFLASH_AUDIO_RING_MASK;
+                s_ring_left[z] = 0;
+                if (s_channels == 2) {
+                    s_ring_right[z] = 0;
+                }
+            }
         } else {
             s_queued_samples -= consumed;
         }
@@ -218,6 +226,16 @@ uint32_t vflash_audio_write(const void *samples, uint32_t num_bytes)
     s_write_idx = w;
     s_queued_samples += frames_to_write;
     s_samples_written += frames_to_write;
+
+    /* Pre-zero buffer space ahead of write cursor so underruns play silence,
+     * not stale looping audio from previous passes. */
+    for (uint32_t k = 0; k < 512u; ++k) {
+        uint32_t z = (w + k) & VFLASH_AUDIO_RING_MASK;
+        s_ring_left[z] = 0;
+        if (s_channels == 2) {
+            s_ring_right[z] = 0;
+        }
+    }
 
     return frames_to_write * frame_bytes;
 }
