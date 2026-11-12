@@ -36,6 +36,7 @@ MMU_ONLY_DEMOS = (
     "suite",
     "cpp",
     "fmv",
+    "stress",
 )
 DEMOS = (
     "hello",
@@ -98,6 +99,8 @@ def resolve_demo(demo, panic_test, gpu_mmu, gpu_view):
         return f"cpp_{mmu}_disc_image", f"build/cpp/{mmu}/homebrew.cue", f"build/play-cpp-{mmu}"
     if demo == "fmv":
         return f"fmv_{mmu}_disc_image", f"build/fmv/{mmu}/homebrew.cue", f"build/play-fmv-{mmu}"
+    if demo == "stress":
+        return f"stress_{mmu}_disc_image", f"build/stress/{mmu}/homebrew.cue", f"build/play-stress-{mmu}"
     view = gpu_view or "a"
     kind = demo.split("-", 1)[1].replace("-", "_")
     return (

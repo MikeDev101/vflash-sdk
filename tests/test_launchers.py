@@ -113,6 +113,10 @@ class DumpedGameTests(unittest.TestCase):
                  "cpp_off_disc_image", "build/cpp/off/homebrew.cue"),
                 (["--demo", "cpp", "--gpu-mmu", "on"],
                  "cpp_on_disc_image", "build/cpp/on/homebrew.cue"),
+                (["--demo", "stress"],
+                 "stress_off_disc_image", "build/stress/off/homebrew.cue"),
+                (["--demo", "stress", "--gpu-mmu", "on"],
+                 "stress_on_disc_image", "build/stress/on/homebrew.cue"),
             ]
             for extra, target, disc in cases:
                 arguments = ["play-homebrew.sh", *extra, "--emulator", str(emulator), "--bios", str(bios)]
