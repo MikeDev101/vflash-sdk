@@ -99,6 +99,8 @@ def benchmark_profile(profile: str, mmu: str, frames: int = 400, bios: Path = No
         "mmu": mmu,
         "frames_decoded": word("bad_apple_frames"),
         "audio_samples": word("bad_apple_audio_samples"),
+        "underruns": word("bad_apple_underruns") if "bad_apple_underruns" in sy else 0,
+        "fps": (word("bad_apple_fps") / 10.0) if "bad_apple_fps" in sy else 0.0,
         "milestone_hw_ms": word("milestone_hw"),
         "milestone_mount_ms": word("milestone_mount"),
         "milestone_validate_ms": word("milestone_validate"),
@@ -108,8 +110,8 @@ def benchmark_profile(profile: str, mmu: str, frames: int = 400, bios: Path = No
     }
 
     print(f"Results for {profile} ({mmu}):")
-    print(f"  Frames decoded: {results['frames_decoded']}")
-    print(f"  Audio samples queued: {results['audio_samples']}")
+    print(f"  Frames decoded: {results['frames_decoded']} (FPS: {results['fps']:.1f})")
+    print(f"  Audio samples queued: {results['audio_samples']}, Underruns: {results['underruns']}")
     print(f"  Startup milestones: HW={results['milestone_hw_ms']}ms, Mount={results['milestone_mount_ms']}ms, Validate={results['milestone_validate_ms']}ms, Total={results['milestone_total_ms']}ms")
 
     return results
@@ -133,10 +135,10 @@ def main():
     print("\n=======================================================")
     print("FINAL BENCHMARK SUMMARY TABLE")
     print("=======================================================")
-    print(f"{'Profile':<18} | {'MMU':<4} | {'Decoded':<8} | {'Audio Samples':<14} | {'Startup (ms)':<12}")
-    print("-" * 65)
+    print(f"{'Profile':<18} | {'MMU':<4} | {'Decoded':<8} | {'Underruns':<10} | {'Audio Samples':<14} | {'Startup (ms)':<12}")
+    print("-" * 78)
     for r in all_results:
-        print(f"{r['profile']:<18} | {r['mmu']:<4} | {r['frames_decoded']:<8} | {r['audio_samples']:<14} | {r['milestone_total_ms']:<12}")
+        print(f"{r['profile']:<18} | {r['mmu']:<4} | {r['frames_decoded']:<8} | {r['underruns']:<10} | {r['audio_samples']:<14} | {r['milestone_total_ms']:<12}")
 
 
 if __name__ == "__main__":

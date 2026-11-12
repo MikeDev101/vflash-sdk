@@ -31,7 +31,11 @@ function(vflash_add_program target script)
         C_STANDARD 11 C_STANDARD_REQUIRED YES
         CXX_STANDARD 17 CXX_STANDARD_REQUIRED YES)
     set(arch_flags -mcpu=arm926ej-s -marm -mfloat-abi=soft -mlittle-endian -mabi=aapcs -fno-short-enums)
-    target_compile_options(${target} PRIVATE ${arch_flags} -Os -g3 -ffreestanding -fno-builtin
+    if(NOT DEFINED VFLASH_OPT_LEVEL)
+        set(VFLASH_OPT_LEVEL "-O3" CACHE STRING "Compiler optimization level (-O1, -O2, -O3, -Os)")
+    endif()
+    target_compile_options(${target} PRIVATE ${arch_flags} ${VFLASH_OPT_LEVEL} -g3 -ffreestanding -fno-builtin
+        -fno-delete-null-pointer-checks -Wno-array-bounds
         -ffunction-sections -fdata-sections -fno-unwind-tables -fno-asynchronous-unwind-tables
         -Wall -Wextra -Werror
         $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions -fno-rtti>)

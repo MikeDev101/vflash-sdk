@@ -1303,7 +1303,7 @@ static PJPG_INLINE uint8 clamp(int16 s)
    return (uint8)s;
 }
 
-static void idctRows(void)
+static PJPG_INLINE void idctRows(void)
 {
    uint8 i;
    int16* pSrc = gCoeffBuf;
@@ -1378,7 +1378,7 @@ static void idctRows(void)
    }      
 }
 
-static void idctCols(void)
+static PJPG_INLINE void idctCols(void)
 {
    uint8 i;
       
@@ -1496,7 +1496,7 @@ static PJPG_INLINE uint8 subAndClamp(uint8 a, int16 b)
 //B = Y + 1.772 (Cb-128)
 /*----------------------------------------------------------------------------*/
 // Cb upsample and accumulate, 4x4 to 8x8
-static void upsampleCb(uint8 srcOfs, uint8 dstOfs)
+static PJPG_INLINE void upsampleCb(uint8 srcOfs, uint8 dstOfs)
 {
    // Cb - affects G and B
    uint8 x, y;
@@ -1533,7 +1533,7 @@ static void upsampleCb(uint8 srcOfs, uint8 dstOfs)
 }   
 /*----------------------------------------------------------------------------*/
 // Cb upsample and accumulate, 4x8 to 8x8
-static void upsampleCbH(uint8 srcOfs, uint8 dstOfs)
+static PJPG_INLINE void upsampleCbH(uint8 srcOfs, uint8 dstOfs)
 {
    // Cb - affects G and B
    uint8 x, y;
@@ -1564,7 +1564,7 @@ static void upsampleCbH(uint8 srcOfs, uint8 dstOfs)
 }   
 /*----------------------------------------------------------------------------*/
 // Cb upsample and accumulate, 8x4 to 8x8
-static void upsampleCbV(uint8 srcOfs, uint8 dstOfs)
+static PJPG_INLINE void upsampleCbV(uint8 srcOfs, uint8 dstOfs)
 {
    // Cb - affects G and B
    uint8 x, y;
@@ -1605,7 +1605,7 @@ static void upsampleCbV(uint8 srcOfs, uint8 dstOfs)
 //B = Y + 1.772 (Cb-128)
 /*----------------------------------------------------------------------------*/
 // Cr upsample and accumulate, 4x4 to 8x8
-static void upsampleCr(uint8 srcOfs, uint8 dstOfs)
+static PJPG_INLINE void upsampleCr(uint8 srcOfs, uint8 dstOfs)
 {
    // Cr - affects R and G
    uint8 x, y;
@@ -1642,7 +1642,7 @@ static void upsampleCr(uint8 srcOfs, uint8 dstOfs)
 }   
 /*----------------------------------------------------------------------------*/
 // Cr upsample and accumulate, 4x8 to 8x8
-static void upsampleCrH(uint8 srcOfs, uint8 dstOfs)
+static PJPG_INLINE void upsampleCrH(uint8 srcOfs, uint8 dstOfs)
 {
    // Cr - affects R and G
    uint8 x, y;
@@ -1673,7 +1673,7 @@ static void upsampleCrH(uint8 srcOfs, uint8 dstOfs)
 }   
 /*----------------------------------------------------------------------------*/
 // Cr upsample and accumulate, 8x4 to 8x8
-static void upsampleCrV(uint8 srcOfs, uint8 dstOfs)
+static PJPG_INLINE void upsampleCrV(uint8 srcOfs, uint8 dstOfs)
 {
    // Cr - affects R and G
    uint8 x, y;
@@ -1705,7 +1705,7 @@ static void upsampleCrV(uint8 srcOfs, uint8 dstOfs)
 } 
 /*----------------------------------------------------------------------------*/
 // Convert Y to RGB
-static void copyY(uint8 dstOfs)
+static PJPG_INLINE void copyY(uint8 dstOfs)
 {
    uint8 i;
    uint8* pRDst = gMCUBufR + dstOfs;
@@ -1724,7 +1724,7 @@ static void copyY(uint8 dstOfs)
 }
 /*----------------------------------------------------------------------------*/
 // Cb convert to RGB and accumulate
-static void convertCb(uint8 dstOfs)
+static PJPG_INLINE void convertCb(uint8 dstOfs)
 {
    uint8 i;
    uint8* pDstG = gMCUBufG + dstOfs;
@@ -1745,7 +1745,7 @@ static void convertCb(uint8 dstOfs)
 }
 /*----------------------------------------------------------------------------*/
 // Cr convert to RGB and accumulate
-static void convertCr(uint8 dstOfs)
+static PJPG_INLINE void convertCr(uint8 dstOfs)
 {
    uint8 i;
    uint8* pDstR = gMCUBufR + dstOfs;
@@ -1765,7 +1765,7 @@ static void convertCr(uint8 dstOfs)
    }
 }
 /*----------------------------------------------------------------------------*/
-static void transformBlock(uint8 mcuBlock)
+static PJPG_INLINE void transformBlock(uint8 mcuBlock)
 {
    idctRows();
    idctCols();

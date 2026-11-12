@@ -133,8 +133,11 @@ if(VFLASH_ENABLE_SDL2 AND EXISTS "${VFLASH_SDK_DIR}/external/SDL2/include/SDL.h"
         COMPILE_DEFINITIONS SDL_BUILD_RWOPS=1
     )
     set(sdl2_arch_flags -mcpu=arm926ej-s -marm -mfloat-abi=soft -mlittle-endian -mabi=aapcs -fno-short-enums)
+    if(NOT DEFINED VFLASH_OPT_LEVEL)
+        set(VFLASH_OPT_LEVEL "-O3" CACHE STRING "Compiler optimization level (-O1, -O2, -O3, -Os)")
+    endif()
     target_compile_options(SDL2 PRIVATE
-        ${sdl2_arch_flags} -Os -g3 -ffreestanding -fno-builtin
+        ${sdl2_arch_flags} ${VFLASH_OPT_LEVEL} -g3 -ffreestanding -fno-builtin
         -ffunction-sections -fdata-sections -fno-unwind-tables -fno-asynchronous-unwind-tables
         -w
     )

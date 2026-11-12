@@ -69,6 +69,9 @@ typedef struct vflash_video_player {
     uint32_t dropped_frames;
     uint32_t last_decode_time_us;
 
+    /* Pipelined backbuffer decode state */
+    bool frame_decoded;
+
     /* Frame bitstream buffer */
     uint32_t chunk_buf_size;
     uint32_t chunk_buf_pos;

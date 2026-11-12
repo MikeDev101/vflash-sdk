@@ -25,6 +25,8 @@ volatile uint32_t bad_apple_status __attribute__((used)) = 0;
 volatile uint32_t bad_apple_frames __attribute__((used)) = 0;
 volatile uint32_t bad_apple_audio_samples __attribute__((used)) = 0;
 volatile uint32_t bad_apple_passed __attribute__((used)) = 0;
+volatile uint32_t bad_apple_underruns __attribute__((used)) = 0;
+volatile uint32_t bad_apple_fps __attribute__((used)) = 0;
 
 /* Milestone timestamps (measured in milliseconds from boot) */
 volatile uint32_t milestone_hw __attribute__((used)) = 0;
@@ -183,6 +185,8 @@ static void draw_hud_overlay(vflash_framebuffer_t *fb, const vflash_video_stats_
     /* Bottom HUD: Audio & Controls */
     vflash_audio_stats_t a_stats;
     vflash_audio_get_stats(&a_stats);
+    bad_apple_underruns = a_stats.underrun_count;
+    bad_apple_fps = (s_fps_whole * 10u) + s_fps_frac;
 
     char line3[64] = "AUDIO: ";
     int_to_str(a_stats.samples_played, num, 1); append_str(line3, num);
@@ -228,14 +232,15 @@ static bool load_profile(int profile_idx)
     vflash_audio_init(NULL);
 
     /* Wipe BOTH front and back framebuffers completely to black (0x000000) */
-    vflash_framebuffer_t clear_fb;
-    if (vflash_video_backbuffer(&clear_fb)) {
-        draw_clear(&clear_fb, 0x000000);
-        vflash_video_present(&clear_fb);
-    }
-    if (vflash_video_backbuffer(&clear_fb)) {
-        draw_clear(&clear_fb, 0x000000);
-        vflash_video_present(&clear_fb);
+    extern uint16_t video_pixels[];
+#ifdef VFLASH_DOUBLE_BUFFER
+    extern uint16_t video_back_pixels[];
+#endif
+    for (uint32_t i = 0; i < VFLASH_WIDTH * VFLASH_HEIGHT; ++i) {
+        video_pixels[i] = 0;
+#ifdef VFLASH_DOUBLE_BUFFER
+        video_back_pixels[i] = 0;
+#endif
     }
 
     if (vflash_video_open(&s_player, path, 0, 0) != 0) {

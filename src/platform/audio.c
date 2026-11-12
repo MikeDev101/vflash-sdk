@@ -14,6 +14,8 @@ static int16_t s_ring_right[VFLASH_AUDIO_RING_SAMPLES] __attribute__((aligned(64
 
 static bool s_active = false;
 static bool s_paused = false;
+static bool s_hardware_started = false;
+static uint32_t s_prebuffer_threshold = 2048;
 static uint8_t s_channels = 2;
 static uint32_t s_sample_rate = 44100;
 static uint32_t s_start_addr = 0;
@@ -55,13 +57,23 @@ static void reset_hardware_voices(void)
 
 bool vflash_audio_init(const vflash_audio_config_t *config)
 {
-    if (!config) return false;
+    vflash_audio_config_t default_cfg = {
+        .sample_rate = 22050,
+        .channels = 1,
+        .format = VFLASH_AUDIO_FMT_S16LE,
+        .buffer_samples = 4096
+    };
+    if (!config) config = &default_cfg;
+
     if (config->channels != 1 && config->channels != 2) return false;
     if (config->format != VFLASH_AUDIO_FMT_S16LE) return false;
     if (config->sample_rate < 4000 || config->sample_rate > 48000) return false;
 
     s_channels = config->channels;
     s_sample_rate = config->sample_rate;
+    s_prebuffer_threshold = (config->buffer_samples > 0) ? config->buffer_samples : 4096u;
+    if (s_prebuffer_threshold < 1024u) s_prebuffer_threshold = 1024u;
+    if (s_prebuffer_threshold > 8192u) s_prebuffer_threshold = 8192u;
 
     /* Clear static ring buffers */
     for (uint32_t i = 0; i < VFLASH_AUDIO_RING_SAMPLES; ++i) {
@@ -119,17 +131,15 @@ bool vflash_audio_init(const vflash_audio_config_t *config)
     s_samples_written = 0;
     s_underrun_count = 0;
     s_paused = false;
+    s_hardware_started = false;
     s_active = true;
-
-    /* Trigger hardware key-on */
-    SOUND_REG(0x1010) = (s_channels == 2) ? 0x03u : 0x01u;
 
     return true;
 }
 
 void vflash_audio_update(void)
 {
-    if (!s_active || s_paused) return;
+    if (!s_active || s_paused || !s_hardware_started) return;
 
     /* Read current DMA hardware fetch address */
     uint32_t hw_addr = VOICE_REG(0, 0x28);
@@ -162,16 +172,12 @@ void vflash_audio_update(void)
                 s_underrun_count++;
             }
             s_queued_samples = 0;
-            /* Align write pointer slightly ahead of hardware read index */
-            s_write_idx = (hw_idx + 64u) & VFLASH_AUDIO_RING_MASK;
-            /* Zero out the alignment gap to prevent playing stale audio */
-            for (uint32_t k = 0; k < 64u; ++k) {
-                uint32_t z = (hw_idx + k) & VFLASH_AUDIO_RING_MASK;
-                s_ring_left[z] = 0;
-                if (s_channels == 2) {
-                    s_ring_right[z] = 0;
-                }
-            }
+            /* Pause voice on underrun to stop reading empty buffer.
+             * It will re-arm when write reaches s_prebuffer_threshold again. */
+            SOUND_REG(0x1018) = (s_channels == 2) ? 0x03u : 0x01u;
+            s_hardware_started = false;
+            s_write_idx = 0;
+            s_last_hw_idx = 0;
         } else {
             s_queued_samples -= consumed;
         }
@@ -237,6 +243,23 @@ uint32_t vflash_audio_write(const void *samples, uint32_t num_bytes)
         }
     }
 
+    /* Start hardware voice DMA once prebuffer threshold is met */
+    if (!s_hardware_started && !s_paused && s_queued_samples >= s_prebuffer_threshold) {
+        VOICE_REG(0, 0x00) = s_start_addr;
+        VOICE_REG(0, 0x04) = s_end_addr;
+        VOICE_REG(0, 0x08) = s_start_addr;
+        if (s_channels == 2) {
+            uint32_t right_start = (uint32_t)(uintptr_t)s_ring_right;
+            uint32_t right_end = right_start + (VFLASH_AUDIO_RING_SAMPLES << 1);
+            VOICE_REG(1, 0x00) = right_start;
+            VOICE_REG(1, 0x04) = right_end;
+            VOICE_REG(1, 0x08) = right_start;
+        }
+        s_last_hw_idx = 0;
+        SOUND_REG(0x1010) = (s_channels == 2) ? 0x03u : 0x01u;
+        s_hardware_started = true;
+    }
+
     return frames_to_write * frame_bytes;
 }
 
@@ -268,9 +291,13 @@ void vflash_audio_pause(bool pause)
     if (s_paused) {
         /* Key off hardware voices */
         SOUND_REG(0x1018) = (s_channels == 2) ? 0x03u : 0x01u;
+        s_hardware_started = false;
     } else {
-        /* Resume key on */
-        SOUND_REG(0x1010) = (s_channels == 2) ? 0x03u : 0x01u;
+        /* Resume key on if prebuffered */
+        if (s_queued_samples >= s_prebuffer_threshold) {
+            SOUND_REG(0x1010) = (s_channels == 2) ? 0x03u : 0x01u;
+            s_hardware_started = true;
+        }
     }
 }
 
@@ -295,5 +322,6 @@ void vflash_audio_shutdown(void)
     reset_hardware_voices();
     s_active = false;
     s_paused = false;
+    s_hardware_started = false;
     s_queued_samples = 0;
 }
