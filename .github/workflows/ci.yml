@@ -12,6 +12,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Install toolchain and build dependencies
         run: |
@@ -24,7 +26,10 @@ jobs:
             libnewlib-arm-none-eabi \
             libstdc++-arm-none-eabi-newlib \
             xorriso \
+            genisoimage \
+            ffmpeg \
             python3 \
+            python3-pil \
             gcc
 
       - name: Configure CMake (V.Flash ARM toolchain)
@@ -47,3 +52,21 @@ jobs:
 
       - name: Run host unit tests
         run: python3 -m unittest discover -s tests -v
+
+      - name: Package demo disc images
+        run: |
+          mkdir -p dist/demo-images
+          while IFS= read -r cue_file; do
+            dir=$(dirname "$cue_file")
+            rel=${dir#build/}
+            mkdir -p "dist/demo-images/$rel"
+            cp -f "$dir"/*.cue "$dir"/*.bin "$dir"/*.iso "$dir"/BOOT.BIN "dist/demo-images/$rel/" 2>/dev/null || true
+          done < <(find build -path '*/CMakeFiles/*' -prune -o -name '*.cue' -print | sort)
+          ls -la dist/demo-images
+
+      - name: Upload demo disc images artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vflash-demo-images
+          path: dist/demo-images
+          if-no-files-found: error
