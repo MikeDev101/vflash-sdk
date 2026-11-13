@@ -10,7 +10,7 @@
 #include "joystick/SDL_joystick_c.h"
 #include "joystick/SDL_steam_virtual_gamepad.h"
 
-/* Freestanding stubs for Steam Virtual Gamepad */
+// Freestanding stubs for Steam Virtual Gamepad
 void SDL_InitSteamVirtualGamepadInfo(void) {}
 SDL_bool SDL_SteamVirtualGamepadEnabled(void) { return SDL_FALSE; }
 SDL_bool SDL_UpdateSteamVirtualGamepadInfo(void) { return SDL_FALSE; }
@@ -129,11 +129,11 @@ static void VFLASH_JoystickUpdate(SDL_Joystick *joystick)
     vflash_input_poll();
     const vflash_input_state_t *st = vflash_input_get_state();
 
-    /* Axes: 0 = X, 1 = Y */
+    // Axes: 0 = X, 1 = Y
     SDL_PrivateJoystickAxis(joystick, 0, (Sint16)st->axis_x);
     SDL_PrivateJoystickAxis(joystick, 1, (Sint16)st->axis_y);
 
-    /* D-Pad Hat: 0 */
+    // D-Pad Hat: 0
     Uint8 hat = SDL_HAT_CENTERED;
     if (st->buttons & VFLASH_BTN_UP)    hat |= SDL_HAT_UP;
     if (st->buttons & VFLASH_BTN_DOWN)  hat |= SDL_HAT_DOWN;
@@ -141,15 +141,14 @@ static void VFLASH_JoystickUpdate(SDL_Joystick *joystick)
     if (st->buttons & VFLASH_BTN_RIGHT) hat |= SDL_HAT_RIGHT;
     SDL_PrivateJoystickHat(joystick, 0, hat);
 
-    /* Buttons:
-     * 0: OK (A)
-     * 1: Red (B)
-     * 2: Yellow (X)
-     * 3: Green (Y)
-     * 4: Blue (Guide)
-     * 5: Stick (LeftStick)
-     * 6: Exit (Back / Home)
-     */
+    // Buttons:
+    // 0: OK (A)
+    // 1: Red (B)
+    // 2: Yellow (X)
+    // 3: Green (Y)
+    // 4: Blue (Guide)
+    // 5: Stick (LeftStick)
+    // 6: Exit (Back / Home)
     SDL_PrivateJoystickButton(joystick, 0, (st->buttons & VFLASH_BTN_OK) ? SDL_PRESSED : SDL_RELEASED);
     SDL_PrivateJoystickButton(joystick, 1, (st->buttons & VFLASH_BTN_RED) ? SDL_PRESSED : SDL_RELEASED);
     SDL_PrivateJoystickButton(joystick, 2, (st->buttons & VFLASH_BTN_YELLOW) ? SDL_PRESSED : SDL_RELEASED);
@@ -173,21 +172,21 @@ static SDL_bool VFLASH_JoystickGetGamepadMapping(int device_index, SDL_GamepadMa
 {
     (void)device_index;
     *out = (SDL_GamepadMapping){
-        .a = { EMappingKind_Button, 0 },         /* OK -> A */
-        .b = { EMappingKind_Button, 1 },         /* Red -> B */
-        .x = { EMappingKind_Button, 2 },         /* Yellow -> X */
-        .y = { EMappingKind_Button, 3 },         /* Green -> Y */
-        .back = { EMappingKind_Button, 6 },      /* Exit -> Back */
-        .guide = { EMappingKind_Button, 4 },     /* Blue -> Guide */
-        .start = { EMappingKind_Button, 0 },     /* OK -> Start */
-        .leftstick = { EMappingKind_Button, 5 }, /* Stick -> LeftStick */
+        .a = { EMappingKind_Button, 0 },         // OK -> A
+        .b = { EMappingKind_Button, 1 },         // Red -> B
+        .x = { EMappingKind_Button, 2 },         // Yellow -> X
+        .y = { EMappingKind_Button, 3 },         // Green -> Y
+        .back = { EMappingKind_Button, 6 },      // Exit -> Back
+        .guide = { EMappingKind_Button, 4 },     // Blue -> Guide
+        .start = { EMappingKind_Button, 0 },     // OK -> Start
+        .leftstick = { EMappingKind_Button, 5 }, // Stick -> LeftStick
         .rightstick = { EMappingKind_None, 255 },
         .leftshoulder = { EMappingKind_None, 255 },
         .rightshoulder = { EMappingKind_None, 255 },
-        .dpup = { EMappingKind_Hat, 1 },         /* Hat 0 Up (0x1) */
-        .dpdown = { EMappingKind_Hat, 4 },       /* Hat 0 Down (0x4) */
-        .dpleft = { EMappingKind_Hat, 8 },       /* Hat 0 Left (0x8) */
-        .dpright = { EMappingKind_Hat, 2 },      /* Hat 0 Right (0x2) */
+        .dpup = { EMappingKind_Hat, 1 },         // Hat 0 Up (0x1)
+        .dpdown = { EMappingKind_Hat, 4 },       // Hat 0 Down (0x4)
+        .dpleft = { EMappingKind_Hat, 8 },       // Hat 0 Left (0x8)
+        .dpright = { EMappingKind_Hat, 2 },      // Hat 0 Right (0x2)
         .misc1 = { EMappingKind_None, 255 },
         .paddle1 = { EMappingKind_None, 255 },
         .paddle2 = { EMappingKind_None, 255 },
@@ -227,4 +226,4 @@ SDL_JoystickDriver SDL_VFLASH_JoystickDriver = {
     VFLASH_JoystickGetGamepadMapping
 };
 
-#endif /* SDL_JOYSTICK_PSP */
+#endif // SDL_JOYSTICK_PSP

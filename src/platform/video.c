@@ -8,12 +8,12 @@ uint16_t video_back_pixels[VFLASH_WIDTH * VFLASH_HEIGHT] __attribute__((aligned(
 static uint16_t *front;
 #endif
 
-/* Owned .bss storage: its physical address is assigned by the linker, not
- * borrowed from a firmware buffer. Exported for debugger/SDRAM verification. */
+// Owned .bss storage: its physical address is assigned by the linker, not
+// borrowed from a firmware buffer. Exported for debugger/SDRAM verification.
 uint16_t video_pixels[VFLASH_WIDTH * VFLASH_HEIGHT] __attribute__((aligned(64)));
 
-/* FlashEm fb109dd src/hw.c: ve_write, ve_render, rgb555. All offsets are
- * relative to the custom ZEVIO video engine, NOT the A800 graphics engine. */
+// FlashEm fb109dd src/hw.c: ve_write, ve_render, rgb555. All offsets are
+// relative to the custom ZEVIO video engine, NOT the A800 graphics engine.
 #define VE_BASE 0xB8000000u
 #define VE_REG(offset) (*(volatile uint32_t *)(uintptr_t)(VE_BASE + (offset)))
 #define VE_SIZE       0x00Cu
@@ -40,13 +40,13 @@ int vflash_video_init(vflash_framebuffer_t *fb)
     uintptr_t address = (uintptr_t)video_pixels;
     if ((address & 63u) || address < 0x10000000u ||
         address > 0x11000000u - sizeof(video_pixels)) return 0;
-    /* Disable every layer and video IRQ source before installing our buffer.
-     * Keep the ROM's unrelated output timing registers; the emulator scanout
-     * consumes only the explicit size/window/layout/address/enable below. */
+    // Disable every layer and video IRQ source before installing our buffer.
+    // Keep the ROM's unrelated output timing registers; the emulator scanout
+    // consumes only the explicit size/window/layout/address/enable below.
     VE_REG(VE_ENABLE) = 0;
     VE_REG(VE_IRQ_MASK) = 0;
     VE_REG(VE_SIZE) = SCREEN_END;
-    VE_REG(VE_LAYOUT) = 0; /* layer 0 is LINEAR: clear tile-layout bit 2 */
+    VE_REG(VE_LAYOUT) = 0; // layer 0 is LINEAR: clear tile-layout bit 2
     VE_REG(VE_BACKGROUND) = 0;
     VE_REG(VE_START0) = 0;
     VE_REG(VE_END0) = SCREEN_END;
@@ -65,12 +65,12 @@ int vflash_video_present(const vflash_framebuffer_t *fb)
 #endif
         fb->width != VFLASH_WIDTH || fb->height != VFLASH_HEIGHT ||
         fb->stride != VFLASH_WIDTH) return 0;
-    /* Firmware handoff has MMU/caches off. Order CPU stores before enabling
-     * scanout; no cache clean or DMA submission is needed in this model. */
+    // Firmware handoff has MMU/caches off. Order CPU stores before enabling
+    // scanout; no cache clean or DMA submission is needed in this model.
     __asm__ volatile("" ::: "memory");
 #ifdef VFLASH_DOUBLE_BUFFER
-    /* Status bit 1 is set by ve_vblank and cleared by writing 1. Wait for
-     * a fresh event, then flip; the next ve_render sees the completed bank. */
+    // Status bit 1 is set by ve_vblank and cleared by writing 1. Wait for
+    // a fresh event, then flip; the next ve_render sees the completed bank.
     VE_REG(VE_STATUS) = 2;
     uint16_t start = vflash_clock_ticks();
     while (!(VE_REG(VE_STATUS) & 2)) {
@@ -80,7 +80,7 @@ int vflash_video_present(const vflash_framebuffer_t *fb)
     VE_REG(VE_ADDRESS0) = (uint32_t)(uintptr_t)fb->pixels;
     front = fb->pixels;
 #endif
-    VE_REG(VE_ENABLE) = 1u << 4; /* only color layer 0, no tiles/movie/GE */
+    VE_REG(VE_ENABLE) = 1u << 4; // only color layer 0, no tiles/movie/GE
     return VE_REG(VE_ENABLE) == (1u << 4);
 }
 

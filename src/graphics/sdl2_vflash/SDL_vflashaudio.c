@@ -18,7 +18,7 @@ static int VFLASHAUDIO_OpenDevice(SDL_AudioDevice *_this, const char *devname)
         return SDL_SetError("Audio capture not supported on V.Flash");
     }
 
-    /* Device natively supports 16-bit signed little-endian PCM */
+    // Device natively supports 16-bit signed little-endian PCM
     _this->spec.format = AUDIO_S16LSB;
 
     if (_this->spec.channels > 2) {
@@ -62,7 +62,7 @@ static void VFLASHAUDIO_CloseDevice(SDL_AudioDevice *_this)
 static void VFLASHAUDIO_LockOrUnlockDevice(SDL_AudioDevice *device)
 {
     (void)device;
-    /* Freestanding single-threaded runtime: no mutex lock required */
+    // Freestanding single-threaded runtime: no mutex lock required
 }
 
 void VFLASH_AudioPump(void)

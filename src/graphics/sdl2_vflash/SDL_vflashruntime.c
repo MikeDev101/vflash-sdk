@@ -25,7 +25,7 @@ size_t vflash_sdl_get_alloc_count(void)
     return vflash_alloc_count();
 }
 
-/* Freestanding timer support backed by V.Flash 10 kHz hardware clock */
+// Freestanding timer support backed by V.Flash 10 kHz hardware clock
 static uint16_t s_last_ticks = 0;
 static uint64_t s_accumulated_ticks = 0;
 static int s_timer_initialized = 0;
@@ -58,7 +58,7 @@ static void update_ticks(void)
 uint64_t SDL_GetTicks64(void)
 {
     update_ticks();
-    /* 10 kHz clock: 10 ticks per millisecond */
+    // 10 kHz clock: 10 ticks per millisecond
     return s_accumulated_ticks / 10u;
 }
 
@@ -70,23 +70,23 @@ uint64_t SDL_GetPerformanceCounter(void)
 
 uint64_t SDL_GetPerformanceFrequency(void)
 {
-    return 10000u; /* 10 kHz hardware timer */
+    return 10000u; // 10 kHz hardware timer
 }
 
 void SDL_Delay(uint32_t ms)
 {
     uint64_t start = SDL_GetTicks64();
     while ((SDL_GetTicks64() - start) < (uint64_t)ms) {
-        /* busy wait */
+        // busy wait
     }
 }
 
-/* Process termination for freestanding runtime */
+// Process termination for freestanding runtime
 void _exit(int status)
 {
     (void)status;
     while (1) {
-        /* halt */
+        // halt
     }
 }
 
@@ -95,7 +95,7 @@ void exit(int status)
     _exit(status);
 }
 
-/* Standard pseudo-random and time helpers for upstream test suites */
+// Standard pseudo-random and time helpers for upstream test suites
 static unsigned long s_next_rand = 1;
 
 int rand(void)
@@ -115,7 +115,7 @@ unsigned int time(void *t)
     return (unsigned int)SDL_GetTicks64();
 }
 
-/* Virtual asset loading for embedded test assets and V.Flash native disc filesystem */
+// Virtual asset loading for embedded test assets and V.Flash native disc filesystem
 #include "SDL_rwops.h"
 #include "SDL_error.h"
 #include "icon_bmp.h"
@@ -202,7 +202,7 @@ SDL_RWops *SDL_RWFromFile(const char *file, const char *mode)
     return SDL_RWFromFile_Upstream(file, mode);
 }
 
-/* Single-core ARMv5TEJ atomic primitives (no SMP) */
+// Single-core ARMv5TEJ atomic primitives (no SMP)
 unsigned int __atomic_exchange_4(volatile void *ptr, unsigned int val, int memmodel)
 {
     (void)memmodel;

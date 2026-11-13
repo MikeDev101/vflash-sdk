@@ -65,32 +65,30 @@ static void cd_seek_tracks(int tracks)
     uint32_t count = (tracks < 0) ? (uint32_t)(-tracks) : (uint32_t)tracks;
     if (count > 0x3FFF) count = 0x3FFF;
 
-    /* 1. Set traverse count */
+    // 1. Set traverse count
     cd_dsp_cmd(20, (0x7u << 16) | count);
 
-    /* 2. Execute seek */
+    // 2. Execute seek
     if (tracks < 0) {
-        cd_dsp_cmd(8, 0x4Fu); /* reverse seek */
+        cd_dsp_cmd(8, 0x4Fu); // reverse seek
     } else {
-        cd_dsp_cmd(8, 0x4Eu); /* forward seek */
+        cd_dsp_cmd(8, 0x4Eu); // forward seek
     }
 
-    /* 3. Wait for seek completion (SENS bit 1) */
+    // 3. Wait for seek completion (SENS bit 1)
     for (volatile int i = 0; i < 200000; ++i) {
         if (CD_REG(0x18) & 2u) break;
     }
 
-    /* 4. Re-enable tracking mode */
+    // 4. Re-enable tracking mode
     cd_dsp_cmd(8, 0x24u);
 }
 
 static void cd_home_head(void)
 {
-    /*
-     * Deterministically reset the optical pickup to the 22.5 mm physical inner
-     * stop regardless of how far outward it has tracked during idle menu time,
-     * then step forward 1580 tracks (25.028 mm = LBA 8) right before LBA 16.
-     */
+        // Deterministically reset the optical pickup to the 22.5 mm physical inner
+    // stop regardless of how far outward it has tracked during idle menu time,
+    // then step forward 1580 tracks (25.028 mm = LBA 8) right before LBA 16.
     cd_seek_tracks(-16383);
     cd_seek_tracks(-16383);
     cd_seek_tracks(1580);
@@ -101,14 +99,14 @@ static void cd_position_head(int32_t target_lba)
 {
     if (target_lba < s_current_lba) {
         uint32_t diff = (uint32_t)(s_current_lba - target_lba);
-        /* 1 track is ~9.1 sectors. Seek back enough tracks to land 4..12 sectors before target */
+        // 1 track is ~9.1 sectors. Seek back enough tracks to land 4..12 sectors before target
         uint32_t tr = udiv32(diff + 4u, 9u, 0) + 1u;
         if (tr > 0x3FFFu) tr = 0x3FFFu;
         cd_seek_tracks(-(int)tr);
         s_current_lba -= (int32_t)(tr * 9u);
     } else if (target_lba > s_current_lba + 18) {
         uint32_t diff = (uint32_t)(target_lba - s_current_lba);
-        /* Conservative ~10 sectors/track to never overshoot target_lba */
+        // Conservative ~10 sectors/track to never overshoot target_lba
         uint32_t tr = udiv32(diff - 6u, 10u, 0);
         if (tr > 0) {
             if (tr > 0x3FFFu) tr = 0x3FFFu;
@@ -132,10 +130,10 @@ int vflash_cd_init(void)
     CD_REG(0x60) &= ~0x00F00000u;
     CD_REG(0x64) = 0xFFFFFFFFu;
     CD_REG(0x74) = 2;
-    cd_dsp_cmd(32, 0x9F209000u); /* Enable 2x base DSP speed */
-    cd_dsp_cmd(32, 0xD0C00040u); /* Sony CXD3068Q CAV-W 4x spindle velocity */
-    cd_dsp_cmd(32, 0xE6670000u); /* Spindle mode 0x65 for 4x transfer rate (300 sectors/sec) */
-    cd_dsp_cmd(8, 0x20u);        /* Hold tracking while idle so head does not overshoot */
+    cd_dsp_cmd(32, 0x9F209000u); // Enable 2x base DSP speed
+    cd_dsp_cmd(32, 0xD0C00040u); // Sony CXD3068Q CAV-W 4x spindle velocity
+    cd_dsp_cmd(32, 0xE6670000u); // Spindle mode 0x65 for 4x transfer rate (300 sectors/sec)
+    cd_dsp_cmd(8, 0x20u);        // Hold tracking while idle so head does not overshoot
     return 0;
 }
 
@@ -178,18 +176,18 @@ int vflash_cd_read_sectors(uint32_t lba, uint32_t count, void *dst)
     CD_REG(0x64) = 0xFFFFFFFFu;
     CD_REG(0x74) = 2;
 
-    /* Start read: Mode 3 (0x18) | Read active (0x04) */
+    // Start read: Mode 3 (0x18) | Read active (0x04)
     CD_REG(0x40) = (CD_REG(0x40) & ~0x18u) | 0x18u | 0x04u;
 
     uint32_t delivered = 0;
     uint32_t idle_polls = 0;
     uint32_t timeout = 50000000u;
     while (timeout--) {
-        CD_REG(0x74) = 2; /* clear slot overrun check */
+        CD_REG(0x74) = 2; // clear slot overrun check
         uint32_t st = CD_REG(0x64);
         if (st & (0x10u | 0x10000u)) {
             CD_REG(0x40) &= ~0x04u;
-            cd_dsp_cmd(8, 0x20u); /* Hold tracking so head stays at lba + count - 1 */
+            cd_dsp_cmd(8, 0x20u); // Hold tracking so head stays at lba + count - 1
             CD_REG(0x64) = 0xFFFFFFFFu;
             s_current_lba = (int32_t)(lba + count - 1u);
             return (int)count;
@@ -200,13 +198,13 @@ int vflash_cd_read_sectors(uint32_t lba, uint32_t count, void *dst)
             delivered++;
             if (delivered >= count) {
                 CD_REG(0x40) &= ~0x04u;
-                cd_dsp_cmd(8, 0x20u); /* Hold tracking so head stays at lba + count - 1 */
+                cd_dsp_cmd(8, 0x20u); // Hold tracking so head stays at lba + count - 1
                 CD_REG(0x64) = 0xFFFFFFFFu;
                 s_current_lba = (int32_t)(lba + count - 1u);
                 return (int)count;
             }
         }
-        /* Closed-loop subchannel Q check before first sector arrives */
+        // Closed-loop subchannel Q check before first sector arrives
         if (delivered == 0 && (st & 0x20u)) {
             CD_REG(0x64) = 0x20u;
             idle_polls = 0;
@@ -226,7 +224,7 @@ int vflash_cd_read_sectors(uint32_t lba, uint32_t count, void *dst)
                 }
             }
         } else if (delivered == 0 && ++idle_polls >= 200000u) {
-            /* Head drifted into lead-out where SubQ stops firing; home and retry */
+            // Head drifted into lead-out where SubQ stops firing; home and retry
             idle_polls = 0;
             CD_REG(0x40) &= ~0x04u;
             cd_home_head();

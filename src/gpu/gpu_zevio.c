@@ -86,7 +86,7 @@ vflash_gpu_result_t gpu_zevio_copy(vflash_gpu_t *g,vflash_gpu_surface_t *s,int32
         (int64_t)sy+h>s->fb.height || (int64_t)dy+h>s->fb.height) return VFLASH_GPU_INVALID;
     if (!w || !h || (sx==dx && sy==dy)) return VFLASH_GPU_OK;
     if ((int64_t)w*h>65536) return VFLASH_GPU_UNSUPPORTED;
-    /* No implicit clipping or generalized overlap semantics. */
+    // No implicit clipping or generalized overlap semantics.
     if (s->clip_x || s->clip_y || s->clip_w!=(int32_t)s->fb.width || s->clip_h!=(int32_t)s->fb.height) return VFLASH_GPU_UNSUPPORTED;
     if (sx<dx+w && dx<sx+w && sy<dy+h && dy<sy+h) return VFLASH_GPU_UNSUPPORTED;
     commands[0]=0xD2000003;commands[1]=(uint32_t)sy<<16|(uint32_t)sx;

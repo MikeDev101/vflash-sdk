@@ -11,7 +11,7 @@ int draw_valid(const vflash_framebuffer_t *fb)
 
 uint16_t draw_color(uint32_t rgb)
 {
-    /* Opaque xBGR1555: bit 15 stays clear; red occupies the LOW five bits. */
+    // Opaque xBGR1555: bit 15 stays clear; red occupies the LOW five bits.
     return (uint16_t)(((rgb >> 19) & 31u) | ((rgb >> 6) & 0x3E0u) |
                       ((rgb << 7) & 0x7C00u));
 }
@@ -28,7 +28,7 @@ void draw_rect(vflash_framebuffer_t *fb, int32_t x, int32_t y,
                int32_t width, int32_t height, uint32_t rgb)
 {
     if (!draw_valid(fb) || width <= 0 || height <= 0) return;
-    /* Widen before adding: even INT32_MIN/MAX coordinates cannot overflow. */
+    // Widen before adding: even INT32_MIN/MAX coordinates cannot overflow.
     int64_t left = x, top = y, right = (int64_t)x + width, bottom = (int64_t)y + height;
     if (left < 0) left = 0;
     if (top < 0) top = 0;

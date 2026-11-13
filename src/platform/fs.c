@@ -85,19 +85,19 @@ int vflash_fs_init(void)
         return -1;
     }
 
-    /* Read Primary Volume Descriptor at LBA 16 */
+    // Read Primary Volume Descriptor at LBA 16
     if (fs_load_sector(16) != 0) {
         return -2;
     }
 
-    /* PVD type must be 1, identifier 'CD001' */
+    // PVD type must be 1, identifier 'CD001'
     if (s_cache[0] != 1 ||
         s_cache[1] != 'C' || s_cache[2] != 'D' ||
         s_cache[3] != '0' || s_cache[4] != '0' || s_cache[5] != '1') {
         return -3;
     }
 
-    /* Root directory record at offset 156 */
+    // Root directory record at offset 156
     const uint8_t *root_rec = s_cache + 156;
     s_root_lba = (uint32_t)root_rec[2] |
                  ((uint32_t)root_rec[3] << 8) |
@@ -108,7 +108,7 @@ int vflash_fs_init(void)
                   ((uint32_t)root_rec[12] << 16) |
                   ((uint32_t)root_rec[13] << 24);
 
-    /* Pre-cache the first root directory sector to avoid repeated backward seeks */
+    // Pre-cache the first root directory sector to avoid repeated backward seeks
     if (vflash_cd_read_sector(s_root_lba, s_root_cache) == 1) {
         s_root_cached = true;
     }
@@ -119,7 +119,7 @@ int vflash_fs_init(void)
 
 static bool match_iso_name(const char *name_on_disc, uint8_t len_on_disc, const char *token, uint32_t tok_len)
 {
-    /* Check if token contains a semicolon version delimiter */
+    // Check if token contains a semicolon version delimiter
     bool tok_has_ver = false;
     for (uint32_t i = 0; i < tok_len; ++i) {
         if (token[i] == ';') {
@@ -128,7 +128,7 @@ static bool match_iso_name(const char *name_on_disc, uint8_t len_on_disc, const 
         }
     }
 
-    /* Effective length on disc ignoring version suffix if token has none */
+    // Effective length on disc ignoring version suffix if token has none
     uint32_t disc_effective_len = len_on_disc;
     if (!tok_has_ver) {
         for (uint32_t i = 0; i < len_on_disc; ++i) {
@@ -139,7 +139,7 @@ static bool match_iso_name(const char *name_on_disc, uint8_t len_on_disc, const 
         }
     }
 
-    /* Exact match */
+    // Exact match
     if (disc_effective_len == tok_len) {
         bool match = true;
         for (uint32_t i = 0; i < tok_len; ++i) {
@@ -151,12 +151,10 @@ static bool match_iso_name(const char *name_on_disc, uint8_t len_on_disc, const 
         if (match) return true;
     }
 
-    /*
-     * ISO 9660 Level 1 8.3 truncation fallback:
-     * If the requested filename exceeds 8 characters before the extension dot,
-     * check if the disc entry has the first 8 characters and matching extension.
-     * E.g. requested "bubblesystem.wav" matches disc "BUBBLESY.WAV".
-     */
+        // ISO 9660 Level 1 8.3 truncation fallback:
+    // If the requested filename exceeds 8 characters before the extension dot,
+    // check if the disc entry has the first 8 characters and matching extension.
+    // E.g. requested "bubblesystem.wav" matches disc "BUBBLESY.WAV".
     const char *tok_dot = NULL;
     for (int32_t i = (int32_t)tok_len - 1; i >= 0; --i) {
         if (token[i] == '.') {
@@ -179,11 +177,11 @@ static bool match_iso_name(const char *name_on_disc, uint8_t len_on_disc, const 
         uint32_t disc_ext_len = disc_effective_len - disc_base_len;
 
         if (tok_base_len > 8u && disc_base_len == 8u && tok_ext_len == disc_ext_len) {
-            /* Check 8-char base prefix */
+            // Check 8-char base prefix
             for (uint32_t i = 0; i < 8u; ++i) {
                 if (!char_eq_ci(name_on_disc[i], token[i])) return false;
             }
-            /* Check extension including dot */
+            // Check extension including dot
             for (uint32_t i = 0; i < tok_ext_len; ++i) {
                 if (!char_eq_ci(disc_dot[i], tok_dot[i])) return false;
             }
@@ -201,7 +199,7 @@ int vflash_fs_open(const char *path)
         if (vflash_fs_init() != 0) return -1;
     }
 
-    /* Find a free descriptor slot */
+    // Find a free descriptor slot
     int fd = -1;
     for (int i = 0; i < VFLASH_FS_MAX_OPEN_FILES; ++i) {
         if (!s_files[i].used) {
@@ -211,7 +209,7 @@ int vflash_fs_open(const char *path)
     }
     if (fd < 0) return -1;
 
-    /* Skip leading slashes */
+    // Skip leading slashes
     while (*path == '/' || *path == '\\') path++;
     if (!*path) return -1;
 
@@ -220,16 +218,16 @@ int vflash_fs_open(const char *path)
 
     const char *p = path;
     while (*p) {
-        /* Extract next path segment */
+        // Extract next path segment
         const char *token_start = p;
         while (*p && *p != '/' && *p != '\\') p++;
         uint32_t tok_len = (uint32_t)(p - token_start);
 
-        /* Skip trailing separator */
+        // Skip trailing separator
         while (*p == '/' || *p == '\\') p++;
         bool is_last_segment = (*p == '\0');
 
-        /* Search for token in cur_dir */
+        // Search for token in cur_dir
         uint32_t dir_sectors = (cur_dir_size + VFLASH_CD_SECTOR_SIZE - 1u) >> 11;
         bool found = false;
         uint32_t next_lba = 0;
@@ -243,7 +241,7 @@ int vflash_fs_open(const char *path)
             while (off < VFLASH_CD_SECTOR_SIZE) {
                 uint8_t len_dr = s_cache[off];
                 if (len_dr == 0) {
-                    /* Padding to end of sector */
+                    // Padding to end of sector
                     break;
                 }
                 if (off + len_dr > VFLASH_CD_SECTOR_SIZE) break;
@@ -271,7 +269,7 @@ int vflash_fs_open(const char *path)
         if (!found) return -1;
 
         if (is_last_segment) {
-            /* Reject opening a directory as a regular file */
+            // Reject opening a directory as a regular file
             if (next_flags & 2u) return -1;
             s_files[fd].used = true;
             s_files[fd].extent_lba = next_lba;
@@ -279,7 +277,7 @@ int vflash_fs_open(const char *path)
             s_files[fd].file_pos = 0;
             return fd;
         } else {
-            /* Must be a directory */
+            // Must be a directory
             if (!(next_flags & 2u)) return -1;
             cur_dir_lba = next_lba;
             cur_dir_size = next_size;
@@ -297,7 +295,7 @@ int32_t vflash_fs_read(int fd, void *buf, uint32_t count)
 
     uint32_t file_pos = s_files[fd].file_pos;
     uint32_t file_size = s_files[fd].file_size;
-    if (file_pos >= file_size) return 0; /* EOF */
+    if (file_pos >= file_size) return 0; // EOF
 
     uint32_t remaining_in_file = file_size - file_pos;
     if (count > remaining_in_file) {
@@ -325,7 +323,7 @@ int32_t vflash_fs_read(int fd, void *buf, uint32_t count)
             file_pos += chunk;
             bytes_left -= chunk;
         } else if (sec_off == 0 && bytes_left >= (FS_CACHE_SECTORS * VFLASH_CD_SECTOR_SIZE) && (((uintptr_t)dst & 3u) == 0)) {
-            /* Fast path: large burst multi-sector DMA read into 4-byte aligned destination */
+            // Fast path: large burst multi-sector DMA read into 4-byte aligned destination
             uint32_t full_sectors = bytes_left >> 11;
             if (vflash_cd_read_sectors(cur_lba, full_sectors, dst) != (int)full_sectors) {
                 s_files[fd].file_pos = file_pos;
@@ -336,7 +334,7 @@ int32_t vflash_fs_read(int fd, void *buf, uint32_t count)
             file_pos += burst_bytes;
             bytes_left -= burst_bytes;
         } else {
-            /* Multi-sector read-ahead into s_cache */
+            // Multi-sector read-ahead into s_cache
             uint32_t rem_sec = (sec_idx < total_file_sectors) ? (total_file_sectors - sec_idx) : 1u;
             uint32_t n_sec = (rem_sec > FS_CACHE_SECTORS) ? FS_CACHE_SECTORS : rem_sec;
             if (vflash_cd_read_sectors(cur_lba, n_sec, s_cache) != (int)n_sec) {

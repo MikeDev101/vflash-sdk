@@ -5,7 +5,7 @@
 #include "vflash/picojpeg.h"
 #include <string.h>
 
-#define MIAV_MAGIC 0x5641494D /* "MIAV" */
+#define MIAV_MAGIC 0x5641494D // "MIAV"
 
 static const int16_t s_ima_step_table[89] = {
     7, 8, 9, 10, 11, 12, 13, 14, 16, 17,
@@ -115,7 +115,7 @@ static int decode_and_render_frame(vflash_video_player_t *player, vflash_framebu
             if (!fb || !fb->pixels) continue;
 
             if (info.m_scanType == PJPG_YH2V2) {
-                /* 4:2:0 subsampled: 16x16 MCU composed of 4 8x8 subblocks */
+                // 4:2:0 subsampled: 16x16 MCU composed of 4 8x8 subblocks
                 for (int sb_y = 0; sb_y < 2; sb_y++) {
                     for (int sb_x = 0; sb_x < 2; sb_x++) {
                         int base_x = player->dst_x + mcu_x * 16 + sb_x * 8;
@@ -431,10 +431,10 @@ int vflash_video_update(vflash_video_player_t *player, vflash_framebuffer_t *fb)
 
     sync_playback_clock(player);
 
-    /* Check presentation timer deadline before reading or decoding video.
-     * Target tick is based on the frame to be displayed: player->current_frame.
-     * Lead deadline provides half a V-blank (~80 ticks / 8.0ms) of presentation headroom
-     * so decode finishes and vflash_video_present() cleanly latches the target V-Blank. */
+    // Check presentation timer deadline before reading or decoding video.
+    // Target tick is based on the frame to be displayed: player->current_frame.
+    // Lead deadline provides half a V-blank (~80 ticks / 8.0ms) of presentation headroom
+    // so decode finishes and vflash_video_present() cleanly latches the target V-Blank.
     uint32_t target_tick = (uint32_t)(((uint64_t)player->current_frame * 10000u) / player->fps);
     uint32_t deadline = (target_tick >= 80u) ? (target_tick - 80u) : 0;
     if (player->tick_accumulator < deadline) {
@@ -465,9 +465,9 @@ int vflash_video_update(vflash_video_player_t *player, vflash_framebuffer_t *fb)
         }
 
         if (chunk_hdr[0] == '0' && chunk_hdr[1] == '0' && chunk_hdr[2] == 'd' && chunk_hdr[3] == 'c') {
-            /* Check if playback has slipped behind real-time schedule.
-             * If tick_accumulator is more than 1 frame behind target deadline,
-             * drop the video decode to catch up, but still process following audio! */
+            // Check if playback has slipped behind real-time schedule.
+            // If tick_accumulator is more than 1 frame behind target deadline,
+            // drop the video decode to catch up, but still process following audio!
             uint32_t cur_target_tick = (uint32_t)(((uint64_t)player->current_frame * 10000u) / player->fps);
             if (player->tick_accumulator > cur_target_tick + (player->ticks_per_frame * 3u) / 2u) {
                 vflash_fs_seek(player->fd, (int32_t)(chunk_size + (chunk_size & 1)), SEEK_CUR);
@@ -488,23 +488,23 @@ int vflash_video_update(vflash_video_player_t *player, vflash_framebuffer_t *fb)
         }
 
         if (chunk_hdr[0] == '0' && chunk_hdr[1] == '1' && chunk_hdr[2] == 'w' && chunk_hdr[3] == 'b') {
-            /* Audio chunk: decode and enqueue into audio ring buffer */
+            // Audio chunk: decode and enqueue into audio ring buffer
             if (player->audio_enabled) {
                 if (player->audio_flags == 0x0001) {
-                    /* ADPCM */
+                    // ADPCM
                     uint32_t samples = decode_adpcm_chunk(player->chunk_buf, chunk_size,
                                                          player->audio_pcm_buf, 4096);
                     vflash_audio_write(player->audio_pcm_buf, samples * 2);
                     player->audio_samples_queued += samples;
                 } else if (player->audio_flags == 0x0004) {
-                    /* PCM16 */
+                    // PCM16
                     vflash_audio_write(player->chunk_buf, chunk_size);
                     player->audio_samples_queued += (chunk_size / 2);
                 }
             }
             continue;
         } else if (chunk_hdr[0] == '0' && chunk_hdr[1] == '0' && chunk_hdr[2] == 'd' && chunk_hdr[3] == 'c') {
-            /* Video frame chunk: in-place 16-bit word pairwise byte-swap for JPEG bitstream */
+            // Video frame chunk: in-place 16-bit word pairwise byte-swap for JPEG bitstream
             uint32_t words = chunk_size >> 2;
             uint32_t *wptr = (uint32_t *)player->chunk_buf;
             for (uint32_t i = 0; i < words; ++i) {
@@ -526,9 +526,9 @@ int vflash_video_update(vflash_video_player_t *player, vflash_framebuffer_t *fb)
 
             player->current_frame++;
 
-            /* In MJP bitstreams, each video frame chunk (00dc) is immediately followed by its
-             * corresponding audio chunk (01wb). Ingest it immediately so the audio DMA ring
-             * buffer is continuously saturated ahead of presentation, preventing starvation. */
+            // In MJP bitstreams, each video frame chunk (00dc) is immediately followed by its
+            // corresponding audio chunk (01wb). Ingest it immediately so the audio DMA ring
+            // buffer is continuously saturated ahead of presentation, preventing starvation.
             if (player->audio_enabled) {
                 uint8_t a_hdr[12];
                 int32_t ard = vflash_fs_read(player->fd, a_hdr, 12);
@@ -554,7 +554,7 @@ int vflash_video_update(vflash_video_player_t *player, vflash_framebuffer_t *fb)
                         }
                     }
                 } else if (ard > 0) {
-                    /* Rewind header bytes if not an audio chunk */
+                    // Rewind header bytes if not an audio chunk
                     vflash_fs_seek(player->fd, -ard, SEEK_CUR);
                 }
             }
@@ -562,7 +562,7 @@ int vflash_video_update(vflash_video_player_t *player, vflash_framebuffer_t *fb)
         }
     }
 
-    /* Keep audio hardware DMA pumping and refresh playback clock after decode */
+    // Keep audio hardware DMA pumping and refresh playback clock after decode
     sync_playback_clock(player);
 
     if (player->current_frame >= player->frame_count) {

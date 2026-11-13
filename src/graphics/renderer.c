@@ -137,7 +137,7 @@ vflash_gpu_result_t vflash_renderer_upload_texture(vflash_renderer_t *r, vflash_
     vflash_gpu_result_t res = vflash_gpu_surface_register(&src_surf, &src_fb, (uint32_t)(uintptr_t)pixels, 1);
     if (res) return res;
 
-    /* Temporary full clip required by vflash_gpu_upload */
+    // Temporary full clip required by vflash_gpu_upload
     vflash_gpu_clip(&r->surf_a, 0, 0, (int32_t)r->config.surface_width, (int32_t)r->config.surface_height);
     vflash_gpu_clip(&r->surf_b, 0, 0, (int32_t)r->config.surface_width, (int32_t)r->config.surface_height);
 
@@ -146,7 +146,7 @@ vflash_gpu_result_t vflash_renderer_upload_texture(vflash_renderer_t *r, vflash_
         res = vflash_gpu_upload(&r->gpu, &r->surf_b, &src_surf, 0, 0, (int32_t)width, (int32_t)height, (int32_t)ax, (int32_t)ay);
     }
 
-    /* Restore active clip settings on both surfaces */
+    // Restore active clip settings on both surfaces
     vflash_gpu_clip(&r->surf_a, r->clip_x, r->clip_y, r->clip_w, r->clip_h);
     vflash_gpu_clip(&r->surf_b, r->clip_x, r->clip_y, r->clip_w, r->clip_h);
     if (res) return res;
@@ -231,7 +231,7 @@ vflash_gpu_result_t vflash_renderer_draw_sub(vflash_renderer_t *r, const vflash_
         int32_t cw = r_edge - l;
         int32_t ch = b_edge - t;
 
-        /* Low-level D2 copy requires surface clip to cover the full surface */
+        // Low-level D2 copy requires surface clip to cover the full surface
         vflash_gpu_clip(r->current, 0, 0, (int32_t)r->config.surface_width, (int32_t)r->config.surface_height);
         vflash_gpu_result_t res = vflash_gpu_copy_region(&r->gpu, r->current, csx, csy, cw, ch, l, t);
         vflash_gpu_clip(r->current, r->clip_x, r->clip_y, r->clip_w, r->clip_h);

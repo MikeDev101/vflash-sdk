@@ -14,7 +14,7 @@ static int VFLASH_VideoInit(_THIS);
 static void VFLASH_VideoQuit(_THIS);
 static void VFLASH_PumpEvents(_THIS);
 
-/* Software fallback framebuffer support */
+// Software fallback framebuffer support
 static uint16_t s_window_fb_pixels[320 * 240] __attribute__((aligned(64)));
 static vflash_framebuffer_t s_linear_fb;
 static int s_linear_inited = 0;
@@ -41,7 +41,7 @@ static int VFLASH_UpdateWindowFramebuffer(_THIS, SDL_Window *window, const SDL_R
     (void)numrects;
     if (!s_linear_inited) return -1;
 
-    /* Copy software window pixels to linear scanout framebuffer */
+    // Copy software window pixels to linear scanout framebuffer
     uint16_t *dst = (uint16_t *)s_linear_fb.pixels;
     const uint16_t *src = s_window_fb_pixels;
     for (uint32_t i = 0; i < 320 * 240; ++i) {

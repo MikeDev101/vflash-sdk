@@ -125,13 +125,13 @@ __attribute__((noreturn)) void vflash_panic_dispatch(uint32_t reason, const uint
     record->origin_lr = raw[18];
     record->fault_pc = raw[13] & ~1u;
     if (record->flags & VFLASH_CRASH_HARDWARE) {
-        /* Only ARM-state reconstruction is validated. The pinned interpreter
-         * misdecodes Thumb UDF and has different Thumb LR semantics. */
+        // Only ARM-state reconstruction is validated. The pinned interpreter
+        // misdecodes Thumb UDF and has different Thumb LR semantics.
         if (!(record->spsr & 32)) { record->fault_pc -= 4; record->flags |= VFLASH_CRASH_PC_VALID; }
         else record->fault_pc = 0;
     }
     for (uint32_t i = 0; i < 13; ++i) record->registers[i] = raw[i];
-    record->fault_address = record->fault_status = 0; /* abort bus is not implemented */
+    record->fault_address = record->fault_status = 0; // abort bus is not implemented
     record->secondary_reason = record->secondary_pc = 0;
     record->vector_mask = vector_mask;
     for (uint32_t i = 0; i < 64; ++i) record->message[i] = 0;

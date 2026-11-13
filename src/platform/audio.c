@@ -8,7 +8,7 @@
 #define VFLASH_AUDIO_RING_SAMPLES 16384u
 #define VFLASH_AUDIO_RING_MASK    (VFLASH_AUDIO_RING_SAMPLES - 1u)
 
-/* Static DMA ring buffers in SDRAM */
+// Static DMA ring buffers in SDRAM
 static int16_t s_ring_left[VFLASH_AUDIO_RING_SAMPLES] __attribute__((aligned(64)));
 static int16_t s_ring_right[VFLASH_AUDIO_RING_SAMPLES] __attribute__((aligned(64)));
 
@@ -32,11 +32,11 @@ static bool s_in_underrun = false;
 
 static void reset_hardware_voices(void)
 {
-    /* Key-off all voices */
+    // Key-off all voices
     SOUND_REG(0x1018) = 0xFFFFFFFFu;
     SOUND_REG(0x101C) = 0xFFFFFFFFu;
 
-    /* Zero all 64 voice register blocks */
+    // Zero all 64 voice register blocks
     for (uint32_t v = 0; v < 64; ++v) {
         VOICE_REG(v, 0x00) = 0;
         VOICE_REG(v, 0x04) = 0;
@@ -50,7 +50,7 @@ static void reset_hardware_voices(void)
         VOICE_REG(v, 0x24) = 0;
     }
 
-    /* Set Master Volume to Maximum (0x7FFF / 0x7FFF) */
+    // Set Master Volume to Maximum (0x7FFF / 0x7FFF)
     SOUND_REG(0x1188) = 0x7FFFu;
     SOUND_REG(0x118A) = 0x7FFFu;
     SOUND_REG(0x1184) = 0xFFFFFFFFu;
@@ -76,7 +76,7 @@ bool vflash_audio_init(const vflash_audio_config_t *config)
     if (s_prebuffer_threshold < 1024u) s_prebuffer_threshold = 1024u;
     if (s_prebuffer_threshold > 8192u) s_prebuffer_threshold = 8192u;
 
-    /* Clear static ring buffers */
+    // Clear static ring buffers
     for (uint32_t i = 0; i < VFLASH_AUDIO_RING_SAMPLES; ++i) {
         s_ring_left[i] = 0;
         s_ring_right[i] = 0;
@@ -87,28 +87,28 @@ bool vflash_audio_init(const vflash_audio_config_t *config)
     s_start_addr = (uint32_t)(uintptr_t)s_ring_left;
     s_end_addr = s_start_addr + (VFLASH_AUDIO_RING_SAMPLES << 1);
 
-    /* Frequency step calculation:
-     * When VOICE_REG(v, 0x0C) has bit 2 set (0x1F4), the hardware voice base rate is 22050 Hz.
-     * Step value 4096 (1<<12) corresponds to unity rate (1.0x pitch multiplier).
-     * For 22050 Hz playback: step = 4096.
-     * For arbitrary rates: (sample_rate * 4096) / 22050, clamped to max hardware step 8191 (0x1FFF). */
+    // Frequency step calculation:
+    // When VOICE_REG(v, 0x0C) has bit 2 set (0x1F4), the hardware voice base rate is 22050 Hz.
+    // Step value 4096 (1<<12) corresponds to unity rate (1.0x pitch multiplier).
+    // For 22050 Hz playback: step = 4096.
+    // For arbitrary rates: (sample_rate * 4096) / 22050, clamped to max hardware step 8191 (0x1FFF).
     uint32_t step = (s_sample_rate == 22050u) ? 4096u : ((s_sample_rate * 4096u) / 22050u);
     if (step == 0) step = 1;
     if (step > 8191) step = 8191;
 
-    /* Configure Voice 0 (Left channel or Centered Mono) */
+    // Configure Voice 0 (Left channel or Centered Mono)
     VOICE_REG(0, 0x00) = s_start_addr;
     VOICE_REG(0, 0x04) = s_end_addr;
-    VOICE_REG(0, 0x08) = s_start_addr; /* Loop address */
-    VOICE_REG(0, 0x0C) = 0x1F4u;       /* 16-bit signed PCM, looping enabled */
+    VOICE_REG(0, 0x08) = s_start_addr; // Loop address
+    VOICE_REG(0, 0x0C) = 0x1F4u;       // 16-bit signed PCM, looping enabled
     VOICE_REG(0, 0x10) = step;
     VOICE_REG(0, 0x14) = 0xFFFFFFFFu;
     VOICE_REG(0, 0x18) = 0xFFFFFFFFu;
     VOICE_REG(0, 0x1C) = 0xFFFFFFFFu;
-    VOICE_REG(0, 0x20) = (s_channels == 1) ? 0x7F7Fu : 0x007Fu; /* Mono centered vs Left only */
+    VOICE_REG(0, 0x20) = (s_channels == 1) ? 0x7F7Fu : 0x007Fu; // Mono centered vs Left only
     VOICE_REG(0, 0x24) = 0;
 
-    /* Configure Voice 1 (Right channel for Stereo) */
+    // Configure Voice 1 (Right channel for Stereo)
     if (s_channels == 2) {
         uint32_t right_start = (uint32_t)(uintptr_t)s_ring_right;
         uint32_t right_end = right_start + (VFLASH_AUDIO_RING_SAMPLES << 1);
@@ -116,12 +116,12 @@ bool vflash_audio_init(const vflash_audio_config_t *config)
         VOICE_REG(1, 0x00) = right_start;
         VOICE_REG(1, 0x04) = right_end;
         VOICE_REG(1, 0x08) = right_start;
-        VOICE_REG(1, 0x0C) = 0x1F4u;   /* 16-bit signed PCM, looping enabled */
+        VOICE_REG(1, 0x0C) = 0x1F4u;   // 16-bit signed PCM, looping enabled
         VOICE_REG(1, 0x10) = step;
         VOICE_REG(1, 0x14) = 0xFFFFFFFFu;
         VOICE_REG(1, 0x18) = 0xFFFFFFFFu;
         VOICE_REG(1, 0x1C) = 0xFFFFFFFFu;
-        VOICE_REG(1, 0x20) = 0x7F00u; /* Right channel only */
+        VOICE_REG(1, 0x20) = 0x7F00u; // Right channel only
         VOICE_REG(1, 0x24) = 0;
     }
 
@@ -143,14 +143,14 @@ void vflash_audio_update(void)
 {
     if (!s_active || s_paused || !s_hardware_started) return;
 
-    /* Read current DMA hardware fetch address */
+    // Read current DMA hardware fetch address
     uint32_t hw_addr = VOICE_REG(0, 0x28);
     uint32_t hw_idx = 0;
     if (hw_addr >= s_start_addr && hw_addr < s_end_addr) {
         hw_idx = (hw_addr - s_start_addr) >> 1;
     }
 
-    /* Calculate consumed samples */
+    // Calculate consumed samples
     uint32_t consumed = (hw_idx >= s_last_hw_idx) ?
                         (hw_idx - s_last_hw_idx) :
                         (VFLASH_AUDIO_RING_SAMPLES - s_last_hw_idx + hw_idx);
@@ -158,7 +158,7 @@ void vflash_audio_update(void)
     if (consumed > 0) {
         s_samples_played += consumed;
 
-        /* Zero out consumed buffer space so underruns play silence */
+        // Zero out consumed buffer space so underruns play silence
         uint32_t idx = s_last_hw_idx;
         while (idx != hw_idx) {
             s_ring_left[idx] = 0;
@@ -174,10 +174,10 @@ void vflash_audio_update(void)
                 s_underrun_count++;
                 s_in_underrun = true;
             }
-            /* All previously queued valid audio has now been consumed (zero valid samples
-             * remain in the ring). Keep hardware voice running and place 512 silence samples
-             * ahead of hw_idx while setting s_queued_samples = 512u so the ring invariant
-             * ((s_last_hw_idx + s_queued_samples) & MASK == s_write_idx) holds strictly. */
+            // All previously queued valid audio has now been consumed (zero valid samples
+            // remain in the ring). Keep hardware voice running and place 512 silence samples
+            // ahead of hw_idx while setting s_queued_samples = 512u so the ring invariant
+            // ((s_last_hw_idx + s_queued_samples) & MASK == s_write_idx) holds strictly.
             s_write_idx = (hw_idx + 512u) & VFLASH_AUDIO_RING_MASK;
             s_queued_samples = 512u;
             for (uint32_t k = 0; k < 512u; ++k) {
@@ -243,8 +243,8 @@ uint32_t vflash_audio_write(const void *samples, uint32_t num_bytes)
     s_samples_written += frames_to_write;
     s_in_underrun = false;
 
-    /* Pre-zero buffer space ahead of write cursor so underruns play silence,
-     * not stale looping audio from previous passes. */
+    // Pre-zero buffer space ahead of write cursor so underruns play silence,
+    // not stale looping audio from previous passes.
     for (uint32_t k = 0; k < 512u; ++k) {
         uint32_t z = (w + k) & VFLASH_AUDIO_RING_MASK;
         s_ring_left[z] = 0;
@@ -253,7 +253,7 @@ uint32_t vflash_audio_write(const void *samples, uint32_t num_bytes)
         }
     }
 
-    /* Start hardware voice DMA once prebuffer threshold is met */
+    // Start hardware voice DMA once prebuffer threshold is met
     if (!s_hardware_started && !s_paused && s_queued_samples >= s_prebuffer_threshold) {
         VOICE_REG(0, 0x00) = s_start_addr;
         VOICE_REG(0, 0x04) = s_end_addr;
@@ -299,11 +299,11 @@ void vflash_audio_pause(bool pause)
 
     s_paused = pause;
     if (s_paused) {
-        /* Key off hardware voices */
+        // Key off hardware voices
         SOUND_REG(0x1018) = (s_channels == 2) ? 0x03u : 0x01u;
         s_hardware_started = false;
     } else {
-        /* Resume key on if prebuffered */
+        // Resume key on if prebuffered
         if (s_queued_samples >= s_prebuffer_threshold) {
             SOUND_REG(0x1010) = (s_channels == 2) ? 0x03u : 0x01u;
             s_hardware_started = true;

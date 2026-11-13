@@ -120,7 +120,7 @@ SDL_Texture *SDL_CreateTexture(SDL_Renderer *renderer, uint32_t format, int acce
     tex->uploaded = 0;
     tex->in_use = 1;
 
-    /* Default blend mode */
+    // Default blend mode
     if (format == SDL_PIXELFORMAT_RGB555 || format == SDL_PIXELFORMAT_BGR555) {
         tex->blend_mode = SDL_BLENDMODE_NONE;
     } else {
@@ -180,14 +180,14 @@ int SDL_UpdateTexture(SDL_Texture *texture, const SDL_Rect *rect, const void *pi
         SDL_SetError("renderer not initialized");
         return -1;
     }
-    /* Reject partial updates */
+    // Reject partial updates
     if (rect != NULL) {
         if (rect->x != 0 || rect->y != 0 || rect->w != texture->w || rect->h != texture->h) {
             SDL_SetError("partial texture update unsupported");
             return -1;
         }
     }
-    /* Reject live texture updates during active double-buffering */
+    // Reject live texture updates during active double-buffering
     if (r->native_renderer.frame_count > 0 && vflash_video_tiled_address() != 0) {
         SDL_SetError("live texture update rejected during tiled scanout");
         return -1;
@@ -371,7 +371,7 @@ int SDL_RenderClear(SDL_Renderer *renderer)
                    ((uint32_t)renderer->draw_color.g << 8) |
                    (uint32_t)renderer->draw_color.b;
 
-    /* SDL2 RenderClear ignores the active clip rectangle */
+    // SDL2 RenderClear ignores the active clip rectangle
     int32_t saved_x = nr->clip_x;
     int32_t saved_y = nr->clip_y;
     int32_t saved_w = nr->clip_w;
@@ -472,12 +472,12 @@ int SDL_RenderCopy(SDL_Renderer *renderer, SDL_Texture *texture, const SDL_Rect 
         dw = dstrect->w;
         dh = dstrect->h;
     }
-    /* Explicitly reject unsupported scaling */
+    // Explicitly reject unsupported scaling
     if (sw != dw || sh != dh) {
         SDL_SetError("unsupported scaling in SDL_RenderCopy (source dimensions must equal destination dimensions)");
         return -1;
     }
-    /* Validate source rectangle bounds */
+    // Validate source rectangle bounds
     if (sx < 0 || sy < 0 || sw < 0 || sh < 0 ||
         (uint32_t)sx + (uint32_t)sw > (uint32_t)texture->w ||
         (uint32_t)sy + (uint32_t)sh > (uint32_t)texture->h) {

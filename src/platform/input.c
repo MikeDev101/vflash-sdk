@@ -3,20 +3,20 @@
 #define UART0_DATA_REG  (*(volatile uint32_t *)0x90020000)
 #define UART0_LSR_REG   (*(volatile uint32_t *)0x90020014)
 
-#define UART_LSR_DR     (1u << 0)   /* Data Ready in RX FIFO */
-#define UART_LSR_THRE   (1u << 5)   /* Transmitter Holding Register Empty */
+#define UART_LSR_DR     (1u << 0)   // Data Ready in RX FIFO
+#define UART_LSR_THRE   (1u << 5)   // Transmitter Holding Register Empty
 
 #define RAW_AXIS_CENTER 2048
 #define RAW_AXIS_SPAN   1792
 #define DEADZONE_INT16  16000
 
-/* State instance */
+// State instance
 static vflash_input_state_t s_state;
 static uint32_t s_prev_buttons = 0;
 static uint32_t s_async_buttons = 0;
 static uint32_t s_consecutive_misses = 0;
 
-/* 9-byte poll request packet: header 0xFF, 0x01, 0x02, followed by 6 packed bytes */
+// 9-byte poll request packet: header 0xFF, 0x01, 0x02, followed by 6 packed bytes
 static const uint8_t s_poll_request[9] = {
     0xFF, 0x01, 0x02, 0x40, 0x40, 0x40, 0x43, 0x40, 0x40
 };
@@ -38,10 +38,8 @@ static inline int uart_recv_byte(void)
     return (int)(UART0_DATA_REG & 0xFF);
 }
 
-/*
- * Decode pairs of payload bytes from triples of 6-bit shifted serial bytes.
- * Returns decoded byte count.
- */
+// Decode pairs of payload bytes from triples of 6-bit shifted serial bytes.
+// Returns decoded byte count.
 static int decode_packet(const uint8_t *src, int src_len, uint8_t *dst, int max_dst)
 {
     int dst_idx = 0;
@@ -63,7 +61,7 @@ static int decode_packet(const uint8_t *src, int src_len, uint8_t *dst, int max_
 
 int vflash_input_init(void)
 {
-    /* Drain any stale bytes from UART0 RX FIFO */
+    // Drain any stale bytes from UART0 RX FIFO
     for (int i = 0; i < 256; i++) {
         if (uart_recv_byte() < 0) {
             break;
@@ -105,17 +103,17 @@ const vflash_input_state_t *vflash_input_get_state(void)
 
 void vflash_input_poll(void)
 {
-    /* Send the 9-byte poll request */
+    // Send the 9-byte poll request
     for (int i = 0; i < 9; i++) {
         uart_send_byte(s_poll_request[i]);
     }
 
-    /* Buffer for assembling incoming frames from UART */
+    // Buffer for assembling incoming frames from UART
     uint8_t rx_buf[32];
     int rx_count = 0;
     bool got_poll_response = false;
 
-    /* Read available bytes from UART RX FIFO */
+    // Read available bytes from UART RX FIFO
     uint32_t timeout = 50000;
     while (--timeout) {
         int b = uart_recv_byte();
@@ -126,7 +124,7 @@ void vflash_input_poll(void)
             continue;
         }
 
-        /* Frame synchronization: frames begin with 0xFF 0x01 */
+        // Frame synchronization: frames begin with 0xFF 0x01
         if (rx_count == 0) {
             if ((uint8_t)b == 0xFF) {
                 rx_buf[rx_count++] = 0xFF;
@@ -146,18 +144,18 @@ void vflash_input_poll(void)
 
         rx_buf[rx_count++] = (uint8_t)b;
 
-        /* Once we have length at index 2, check if frame is complete */
+        // Once we have length at index 2, check if frame is complete
         if (rx_count >= 3) {
             uint8_t plen = rx_buf[2];
             int expected_frame_len = 3 * ((plen + 1) / 2) + 6;
 
             if (rx_count >= expected_frame_len) {
-                /* Decode frame */
+                // Decode frame
                 uint8_t decoded[16];
                 int dec_len = decode_packet(&rx_buf[3], expected_frame_len - 3, decoded, sizeof(decoded));
 
                 if (dec_len >= plen + 2) {
-                    /* Verify 16-bit checksum */
+                    // Verify 16-bit checksum
                     uint16_t chk_received = (uint16_t)(decoded[plen] | (decoded[plen + 1] << 8));
                     uint16_t chk_computed = (uint16_t)(plen + 1);
                     for (int p = 0; p < plen; p++) {
@@ -166,7 +164,7 @@ void vflash_input_poll(void)
 
                     if (chk_received == chk_computed) {
                         if (plen == 4) {
-                            /* 4-byte polled response packet */
+                            // 4-byte polled response packet
                             uint16_t raw_y = (uint16_t)(((decoded[1] << 8) & 0x0F00) | decoded[0]);
                             uint16_t raw_x = (uint16_t)(((decoded[2] << 4) & 0x0FF0) | ((decoded[1] >> 4) & 0x000F));
                             uint8_t btn_ok = (uint8_t)(decoded[3] & 1);
@@ -174,8 +172,8 @@ void vflash_input_poll(void)
                             s_state.raw_x = raw_x;
                             s_state.raw_y = raw_y;
 
-                            /* Normalize axes to signed 16-bit without hardware division:
-                             * (dx * 32767) / 1792 ~= (dx * 18) + ((dx * 73) >> 8) */
+                            // Normalize axes to signed 16-bit without hardware division:
+                            // (dx * 32767) / 1792 ~= (dx * 18) + ((dx * 73) >> 8)
                             int32_t dx = (int32_t)raw_x - RAW_AXIS_CENTER;
                             int32_t val_x = (dx * 18) + ((dx * 73) >> 8);
                             if (val_x > 32767) val_x = 32767;
@@ -198,10 +196,10 @@ void vflash_input_poll(void)
                             s_state.connected = true;
                             s_consecutive_misses = 0;
                         } else if (plen == 6) {
-                            /* 6-byte periodic frame broadcast packet:
-                             * decoded[0..1]: raw Y axis (0x7F=Up, 0x81=Down, 0=neutral)
-                             * decoded[1..2]: raw X axis (0x7F=Right, 0x81=Left, 0=neutral)
-                             * decoded[2..4]: 16-bit button bitmask */
+                            // 6-byte periodic frame broadcast packet:
+                            // decoded[0..1]: raw Y axis (0x7F=Up, 0x81=Down, 0=neutral)
+                            // decoded[1..2]: raw X axis (0x7F=Right, 0x81=Left, 0=neutral)
+                            // decoded[2..4]: 16-bit button bitmask
                             uint8_t raw_y_byte = (uint8_t)((decoded[0] >> 4) | ((decoded[1] & 0x0F) << 4));
                             uint8_t raw_x_byte = (uint8_t)((decoded[1] >> 5) | ((decoded[2] & 0x1F) << 3));
                             uint32_t raw_btns = (uint32_t)((decoded[2] >> 6) | (decoded[3] << 2) | ((decoded[4] & 0x3F) << 10));
@@ -213,8 +211,8 @@ void vflash_input_poll(void)
                             else if (raw_x_byte > 0x80) axis_x = (int16_t)((int8_t)raw_x_byte * 258);
 
                             int16_t axis_y = 0;
-                            if (raw_y_byte == 0x7F) axis_y = -32768; /* Up is negative in screen/SDL coords */
-                            else if (raw_y_byte == 0x81) axis_y = 32767;  /* Down is positive */
+                            if (raw_y_byte == 0x7F) axis_y = -32768; // Up is negative in screen/SDL coords
+                            else if (raw_y_byte == 0x81) axis_y = 32767;  // Down is positive
                             else if (raw_y_byte > 0 && raw_y_byte < 0x80) axis_y = (int16_t)(-(raw_y_byte * 258));
                             else if (raw_y_byte > 0x80) axis_y = (int16_t)(-((int8_t)raw_y_byte * 258));
 
@@ -239,7 +237,7 @@ void vflash_input_poll(void)
                             s_state.connected = true;
                             s_consecutive_misses = 0;
                         } else if (plen == 2) {
-                            /* 2-byte asynchronous action button packet */
+                            // 2-byte asynchronous action button packet
                             uint8_t btn_id = decoded[0];
                             if (btn_id == 1) s_async_buttons |= VFLASH_BTN_RED;
                             else if (btn_id == 2) s_async_buttons |= VFLASH_BTN_YELLOW;
@@ -248,7 +246,7 @@ void vflash_input_poll(void)
                         }
                     }
                 }
-                /* Reset frame buffer for next packet in FIFO */
+                // Reset frame buffer for next packet in FIFO
                 rx_count = 0;
             }
         }
@@ -261,18 +259,18 @@ void vflash_input_poll(void)
         }
     }
 
-    /* Compute digital directional buttons from analog axes with deadzone */
+    // Compute digital directional buttons from analog axes with deadzone
     uint32_t dir_buttons = 0;
     if (s_state.axis_x < -DEADZONE_INT16) dir_buttons |= VFLASH_BTN_LEFT;
     if (s_state.axis_x > DEADZONE_INT16)  dir_buttons |= VFLASH_BTN_RIGHT;
     if (s_state.axis_y < -DEADZONE_INT16) dir_buttons |= VFLASH_BTN_UP;
     if (s_state.axis_y > DEADZONE_INT16)  dir_buttons |= VFLASH_BTN_DOWN;
 
-    /* Combine discrete buttons, directional buttons, and any async button triggers */
+    // Combine discrete buttons, directional buttons, and any async button triggers
     uint32_t preserved = s_state.buttons & (VFLASH_BTN_OK | VFLASH_BTN_STICK | VFLASH_BTN_EXIT |
                                             VFLASH_BTN_RED | VFLASH_BTN_YELLOW | VFLASH_BTN_GREEN | VFLASH_BTN_BLUE);
     uint32_t cur_buttons = preserved | dir_buttons | s_async_buttons;
-    s_async_buttons = 0; /* Consume one-shot triggers */
+    s_async_buttons = 0; // Consume one-shot triggers
 
     s_state.buttons = cur_buttons;
     s_state.pressed = cur_buttons & ~s_prev_buttons;

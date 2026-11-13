@@ -6,7 +6,7 @@
 #include "vflash/video.h"
 #include "vflash/draw.h"
 
-/* Static backing buffers for full 320x240 double-buffering with offscreen atlas */
+// Static backing buffers for full 320x240 double-buffering with offscreen atlas
 static uint16_t s_surface_a[245760] __attribute__((aligned(64)));
 static uint16_t s_surface_b[245760] __attribute__((aligned(64)));
 static uint16_t s_conversion_buf[320 * 240] __attribute__((aligned(64)));
@@ -295,7 +295,7 @@ static int VFLASH_QueueFillRects(SDL_Renderer *renderer, SDL_RenderCommand *cmd,
 static int VFLASH_QueueCopy(SDL_Renderer *renderer, SDL_RenderCommand *cmd, SDL_Texture *texture,
                             const SDL_Rect *srcrect, const SDL_FRect *dstrect)
 {
-    /* Reject scaling */
+    // Reject scaling
     if ((int)dstrect->w != srcrect->w || (int)dstrect->h != srcrect->h) {
         SDL_SetError("unsupported scaling in SDL_RenderCopy (source dimensions must equal destination dimensions)");
         return -1;
@@ -519,7 +519,7 @@ SDL_RenderDriver VFLASH_RenderDriver = {
     }
 };
 
-/* Diagnostics and introspection */
+// Diagnostics and introspection
 vflash_renderer_t *vflash_sdl2_get_native_renderer(SDL_Renderer *renderer)
 {
     if (!renderer) return NULL;

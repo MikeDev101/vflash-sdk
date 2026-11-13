@@ -4,7 +4,7 @@
 #include "vflash/clock.h"
 #include <stddef.h>
 
-/* Visual coordinates and colors reverse-engineered from retail loading sequence */
+// Visual coordinates and colors reverse-engineered from retail loading sequence
 #define COLOR_BG            0x00184A
 #define COLOR_BAND          0x001842
 #define COLOR_DIVIDER       0x001031
@@ -40,7 +40,7 @@ static char s_copyright[32] = "(C) 2026 SDK Contributors";
 static unsigned s_anim_tick = 0;
 static bool s_initialized = false;
 
-/* 30x39 clean-room procedural glyph mapping for retail V.DISC cartridge caddy */
+// 30x39 clean-room procedural glyph mapping for retail V.DISC cartridge caddy
 static const char * const s_icon_rows[ICON_H] = {
     "000000000022222222200000000000",
     "000000003320000000033200000000",
@@ -86,10 +86,10 @@ static const char * const s_icon_rows[ICON_H] = {
 static uint32_t icon_palette(char code)
 {
     switch (code) {
-        case '1': return 0x3A4B62; /* shadow border */
-        case '2': return 0x7B8EA8; /* cartridge caddy outline */
-        case '3': return 0xDCE4F0; /* metallic disc highlight & text */
-        default:  return 0;        /* 0 = transparent */
+        case '1': return 0x3A4B62; // shadow border
+        case '2': return 0x7B8EA8; // cartridge caddy outline
+        case '3': return 0xDCE4F0; // metallic disc highlight & text
+        default:  return 0;        // 0 = transparent
     }
 }
 
@@ -110,7 +110,7 @@ static void draw_progress_capsule(vflash_framebuffer_t *target, int x, int y, in
 {
     if (percent > 100) percent = 100;
 
-    /* Outer pill border */
+    // Outer pill border
     draw_rect(target, x + 2, y, w - 4, 1, COLOR_BAR_BORDER);
     draw_rect(target, x + 2, y + h - 1, w - 4, 1, COLOR_BAR_BORDER);
     draw_rect(target, x, y + 2, 1, h - 4, COLOR_BAR_BORDER);
@@ -120,21 +120,21 @@ static void draw_progress_capsule(vflash_framebuffer_t *target, int x, int y, in
     draw_pixel(target, x + w - 2, y + 1, COLOR_BAR_BORDER);
     draw_pixel(target, x + w - 2, y + h - 2, COLOR_BAR_BORDER);
 
-    /* Dark recessed trough */
+    // Dark recessed trough
     draw_rect(target, x + 2, y + 1, w - 4, h - 2, COLOR_BAR_TROUGH);
 
-    /* Filled progress bar interior */
+    // Filled progress bar interior
     int inner_w = w - 4;
     int fill_w = (int)((percent * (unsigned)inner_w) / 100u);
     if (fill_w > 0) {
         if (fill_w > inner_w) fill_w = inner_w;
-        /* Highlight row */
+        // Highlight row
         draw_rect(target, x + 2, y + 1, fill_w, 1, COLOR_BAR_HI);
-        /* Body rows */
+        // Body rows
         if (h > 3) {
             draw_rect(target, x + 2, y + 2, fill_w, h - 3, COLOR_BAR_MID);
         }
-        /* Shadow row */
+        // Shadow row
         draw_rect(target, x + 2, y + h - 2, fill_w, 1, COLOR_BAR_SHADOW);
     }
 }
@@ -197,7 +197,7 @@ void vflash_loading_init(void)
     s_anim_tick = 0;
     s_initialized = true;
 
-    /* Render initial SDK intro banner beforehand as requested */
+    // Render initial SDK intro banner beforehand as requested
     vflash_framebuffer_t target;
     if (!vflash_video_backbuffer(&target)) {
         target = s_fb;
@@ -219,13 +219,13 @@ void vflash_loading_init(void)
 
     vflash_video_present(&target);
 
-    /* Brief hardware/emulator pause so splash is visible */
+    // Brief hardware/emulator pause so splash is visible
     uint16_t t_start = vflash_clock_ticks();
     while ((uint16_t)(vflash_clock_ticks() - t_start) < 250) {
-        /* ~25ms delay */
+        // ~25ms delay
     }
 
-    /* Transition into retail loading screen presentation */
+    // Transition into retail loading screen presentation
     vflash_loading_render();
 }
 
@@ -246,17 +246,17 @@ void vflash_loading_render(void)
         target = s_fb;
     }
 
-    /* 1. Clear background */
+    // 1. Clear background
     draw_clear(&target, COLOR_BG);
 
-    /* 2. Draw central horizontal band and divider */
+    // 2. Draw central horizontal band and divider
     draw_rect(&target, 0, BAND_Y, VFLASH_WIDTH, BAND_H, COLOR_BAND);
     draw_rect(&target, 0, DIVIDER_Y, VFLASH_WIDTH, 1, COLOR_DIVIDER);
 
-    /* 3. Draw V.DISC icon */
+    // 3. Draw V.DISC icon
     draw_vdisc_icon(&target, ICON_X, ICON_Y);
 
-    /* 4. Draw 'Loading . .' label with animated dots */
+    // 4. Draw 'Loading . .' label with animated dots
     char load_str[16] = "Loading";
     int dots = (int)((s_anim_tick / 4u) % 4u);
     int p = 7;
@@ -273,10 +273,10 @@ void vflash_loading_render(void)
         draw_text(&target, 108, 110, load_str, COLOR_TEXT_MAIN, 1);
     }
 
-    /* 5. Draw beveled progress bar */
+    // 5. Draw beveled progress bar
     draw_progress_capsule(&target, BAR_X, BAR_Y, BAR_W, BAR_H, s_progress);
 
-    /* 6. Present frame */
+    // 6. Present frame
     vflash_video_present(&target);
     s_anim_tick++;
 }
@@ -287,7 +287,7 @@ void vflash_loading_finish(void)
     safe_copy_status("Ready");
     vflash_loading_render();
 
-    /* Ensure backbuffer is clear and ready for seamless video playback */
+    // Ensure backbuffer is clear and ready for seamless video playback
     vflash_framebuffer_t target;
     if (vflash_video_backbuffer(&target)) {
         draw_clear(&target, 0x000000);

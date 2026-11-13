@@ -1,6 +1,6 @@
 #include "vflash/mmu.h"
 #include <stddef.h>
-/* Linked only into opt-in programs; BSS storage lies below panic/heap/stack. */
+// Linked only into opt-in programs; BSS storage lies below panic/heap/stack.
 uint32_t vflash_mmu_l1[4096] __attribute__((aligned(16384)));
 uint32_t vflash_mmu_l2[4][256] __attribute__((aligned(1024)));
 static uint32_t owners[4], used, initialized, active;
@@ -26,7 +26,7 @@ vflash_mmu_result_t vflash_mmu_map_section(uint32_t va,uint32_t pa,uint32_t ap)
     if (!initialized || !valid_ap(ap)) return VFLASH_MMU_INVALID;
     if ((va|pa)&0xFFFFF) return VFLASH_MMU_ALIGNMENT;
     if (vflash_mmu_l1[va>>20]) return VFLASH_MMU_CONFLICT;
-    /* ARM926 section descriptor includes implementation-required bit 4. */
+    // ARM926 section descriptor includes implementation-required bit 4.
     vflash_mmu_l1[va>>20]=pa|(ap<<10)|0x12;
     return VFLASH_MMU_OK;
 }
@@ -51,7 +51,7 @@ vflash_mmu_result_t vflash_mmu_map_page(uint32_t va,uint32_t pa,uint32_t ap)
     }
     uint32_t *entry=&vflash_mmu_l2[t][(va>>12)&255];
     if (*entry) return VFLASH_MMU_CONFLICT;
-    /* Replicate AP into each 1 KiB subpage permission field. C=B=0. */
+    // Replicate AP into each 1 KiB subpage permission field. C=B=0.
     *entry=pa|(ap*0x550u)|2;
     return VFLASH_MMU_OK;
 }
@@ -69,7 +69,7 @@ vflash_mmu_result_t vflash_mmu_identity(void)
 {
     vflash_mmu_result_t r=vflash_mmu_init();
     if (r) return r;
-    /* Only ROM, all SDRAM, and the two required peripheral section windows. */
+    // Only ROM, all SDRAM, and the two required peripheral section windows.
     vflash_mmu_map_section(0,0,1); vflash_mmu_map_section(0x100000,0x100000,1);
     for (uint32_t i=0x100;i<0x110;++i) vflash_mmu_map_section(i<<20,i<<20,1);
     vflash_mmu_map_section(0x90000000,0x90000000,1);
@@ -100,8 +100,8 @@ vflash_mmu_result_t vflash_mmu_enable(void)
 }
 vflash_mmu_result_t vflash_mmu_disable(void)
 {
-    /* Only identity-profile activation is exposed; nonidentity execution is
-     * deliberately unsupported across the transition. */
+    // Only identity-profile activation is exposed; nonidentity execution is
+    // deliberately unsupported across the transition.
     if ((vflash_mmu_processor_state()&0xFF)!=0xD3 || (vflash_mmu_control()&0x1004))
         return VFLASH_MMU_UNSUPPORTED;
     if (!active) return idle() ? VFLASH_MMU_OK : VFLASH_MMU_UNSUPPORTED;

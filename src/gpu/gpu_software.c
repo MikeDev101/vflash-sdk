@@ -17,8 +17,8 @@ vflash_gpu_result_t gpu_software_blit(vflash_gpu_surface_t *d,const vflash_gpu_s
     uintptr_t db=(uintptr_t)d->fb.pixels,sb=(uintptr_t)s->fb.pixels;
     uintptr_t de=db+(uintptr_t)d->fb.capacity_pixels*2,se=sb+(uintptr_t)s->fb.capacity_pixels*2;
     int overlap=db<se && sb<de;
-    /* Exact-base views with equal stride support memmove semantics. Other
-     * overlapping registrations are rejected before any writes. */
+    // Exact-base views with equal stride support memmove semantics. Other
+    // overlapping registrations are rejected before any writes.
     if (overlap && (db!=sb || d->fb.stride!=s->fb.stride)) return VFLASH_GPU_UNSUPPORTED;
     int64_t l=max64(x,d->clip_x),t=max64(y,d->clip_y);
     int64_t r=min64((int64_t)x+s->fb.width,(int64_t)d->clip_x+d->clip_w);

@@ -1,13 +1,13 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* Linker symbols for heap bounds from linker script */
+// Linker symbols for heap bounds from linker script
 extern char __heap_start;
 extern char __heap_end;
 
-/* 8-byte aligned memory block header */
+// 8-byte aligned memory block header
 typedef struct BlockHeader {
-    size_t size; /* payload size; bit 0 = 1 if allocated, 0 if free */
+    size_t size; // payload size; bit 0 = 1 if allocated, 0 if free
     struct BlockHeader *next;
     struct BlockHeader *prev;
 } BlockHeader;
@@ -24,11 +24,11 @@ void *malloc(size_t size)
     if (size == 0) return NULL;
     size_t aligned_size = ALIGN8(size);
 
-    /* Search free list */
+    // Search free list
     BlockHeader *curr = s_free_list;
     while (curr) {
         if (curr->size >= aligned_size) {
-            /* Check if we can split this block */
+            // Check if we can split this block
             if (curr->size >= aligned_size + sizeof(BlockHeader) + 16u) {
                 size_t remaining = curr->size - aligned_size - sizeof(BlockHeader);
                 BlockHeader *split = (BlockHeader *)((char *)(curr + 1) + aligned_size);
@@ -40,12 +40,12 @@ void *malloc(size_t size)
                 curr->size = aligned_size;
             }
 
-            /* Unlink curr from free list */
+            // Unlink curr from free list
             if (curr->prev) curr->prev->next = curr->next;
             else s_free_list = curr->next;
             if (curr->next) curr->next->prev = curr->prev;
 
-            curr->size |= 1u; /* Mark allocated */
+            curr->size |= 1u; // Mark allocated
             curr->next = NULL;
             curr->prev = NULL;
             s_heap_used += aligned_size;
@@ -55,21 +55,21 @@ void *malloc(size_t size)
         curr = curr->next;
     }
 
-    /* Bump allocate from heap */
+    // Bump allocate from heap
     if (!s_heap_current) {
         s_heap_current = &__heap_start;
     }
 
     size_t total_needed = sizeof(BlockHeader) + aligned_size;
     if (s_heap_current + total_needed > &__heap_end) {
-        /* Bounded heap exhausted */
+        // Bounded heap exhausted
         return NULL;
     }
 
     BlockHeader *block = (BlockHeader *)s_heap_current;
     s_heap_current += total_needed;
 
-    block->size = aligned_size | 1u; /* Mark allocated */
+    block->size = aligned_size | 1u; // Mark allocated
     block->next = NULL;
     block->prev = NULL;
     s_heap_used += aligned_size;
@@ -83,11 +83,11 @@ void free(void *ptr)
     if (!ptr) return;
     BlockHeader *block = ((BlockHeader *)ptr) - 1;
     if (!(block->size & 1u)) {
-        /* Double free or invalid block */
+        // Double free or invalid block
         return;
     }
 
-    block->size &= ~1u; /* Mark free */
+    block->size &= ~1u; // Mark free
     if (s_heap_used >= block->size) {
         s_heap_used -= block->size;
     }
@@ -95,7 +95,7 @@ void free(void *ptr)
         s_alloc_count--;
     }
 
-    /* Add to front of free list */
+    // Add to front of free list
     block->next = s_free_list;
     block->prev = NULL;
     if (s_free_list) {
@@ -107,7 +107,7 @@ void free(void *ptr)
 void *calloc(size_t nmemb, size_t size)
 {
     size_t total = nmemb * size;
-    if (nmemb != 0 && total / nmemb != size) return NULL; /* Overflow */
+    if (nmemb != 0 && total / nmemb != size) return NULL; // Overflow
     void *ptr = malloc(total);
     if (!ptr) return NULL;
     uint8_t *p = (uint8_t *)ptr;
@@ -152,7 +152,7 @@ size_t vflash_alloc_count(void)
     return s_alloc_count;
 }
 
-/* Builtin memory functions for freestanding GCC runtime */
+// Builtin memory functions for freestanding GCC runtime
 void *memcpy(void *dst, const void *src, size_t n)
 {
     uint8_t *d = (uint8_t *)dst;
