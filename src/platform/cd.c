@@ -1,4 +1,5 @@
 #include <vflash/cd.h>
+#include <vflash/mmu.h>
 
 #define CD_REG(off) (*(volatile uint32_t *)(0xC4000000u + (off)))
 
@@ -165,6 +166,10 @@ int vflash_cd_read_sectors(uint32_t lba, uint32_t count, void *dst)
     uint32_t bytes = count * VFLASH_CD_SECTOR_SIZE;
     uint32_t addr = (uint32_t)(uintptr_t)dst;
 
+    // Flush and invalidate any dirty cache lines covering dst before CD DMA
+    // writes to SDRAM so later cache evictions cannot overwrite DMA data.
+    vflash_dcache_clean_invalidate_range(dst, bytes);
+
     CD_REG(0x1C) = msf;
     CD_REG(0x20) = count;
     CD_REG(0x28) = addr;
@@ -190,6 +195,7 @@ int vflash_cd_read_sectors(uint32_t lba, uint32_t count, void *dst)
             cd_dsp_cmd(8, 0x20u); // Hold tracking so head stays at lba + count - 1
             CD_REG(0x64) = 0xFFFFFFFFu;
             s_current_lba = (int32_t)(lba + count - 1u);
+            vflash_dcache_invalidate_range(dst, bytes);
             return (int)count;
         }
         if (st & 0x1000u) {
@@ -201,6 +207,7 @@ int vflash_cd_read_sectors(uint32_t lba, uint32_t count, void *dst)
                 cd_dsp_cmd(8, 0x20u); // Hold tracking so head stays at lba + count - 1
                 CD_REG(0x64) = 0xFFFFFFFFu;
                 s_current_lba = (int32_t)(lba + count - 1u);
+                vflash_dcache_invalidate_range(dst, bytes);
                 return (int)count;
             }
         }

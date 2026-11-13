@@ -3,6 +3,7 @@
 #include "vflash/video.h"
 #include "vflash/clock.h"
 #include "vflash/draw.h"
+#include "vflash/mmu.h"
 #define REG(a) (*(volatile uint32_t *)(uintptr_t)(a))
 static vflash_gpu_t *owner;
 static uint32_t poisoned;
@@ -16,10 +17,9 @@ vflash_gpu_result_t gpu_zevio_wait(vflash_gpu_t *g)
 static uint32_t commands[16] __attribute__((aligned(64)));
 static int cpu_safe(void)
 {
-    uint32_t c,s;
-    __asm__ volatile("mrc p15,0,%0,c1,c0,0" : "=r"(c));
+    uint32_t s;
     __asm__ volatile("mrs %0,cpsr" : "=r"(s));
-    return !(c&0x3004) && (s&255)==0xD3;
+    return (s&255)==0xD3;
 }
 vflash_gpu_result_t gpu_zevio_init(vflash_gpu_t *g)
 {
@@ -41,6 +41,7 @@ static vflash_gpu_result_t submit(vflash_gpu_t *g,vflash_gpu_surface_t *s,uint32
     if (front && s->physical_address<front+fbytes && front<s->physical_address+sbytes)
         return VFLASH_GPU_BUSY;
     commands[n]=0x1400FD01;
+    vflash_dcache_clean_range(commands, (n + 1u) * sizeof(uint32_t));
     REG(0xA8000014)=0x3F;REG(0xA8000090)=512;
     REG(0xA8000098)=s->physical_address;
     REG(0xA8000028)=(uint32_t)(uintptr_t)commands;
@@ -140,6 +141,7 @@ vflash_gpu_result_t gpu_zevio_upload(vflash_gpu_t *g,vflash_gpu_surface_t *d,con
     if (h>1 && (uint32_t)w!=s->fb.stride) return VFLASH_GPU_UNSUPPORTED;
     uint32_t words=((uint32_t)w*(uint32_t)h)>>1;
     if (words>65535u) return VFLASH_GPU_UNSUPPORTED;
+    vflash_dcache_clean_range((const uint8_t *)s->fb.pixels+offset, (size_t)words*4u);
     commands[0]=0xD0000002;commands[1]=(uint32_t)dy<<16|(uint32_t)dx;
     commands[2]=(uint32_t)h<<16|(uint32_t)w;commands[3]=0x0E000000u|words;
     commands[4]=s->physical_address+offset;commands[5]=0x89000000;commands[6]=0x95000000;

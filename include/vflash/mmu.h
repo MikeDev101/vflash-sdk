@@ -1,7 +1,10 @@
 #ifndef VFLASH_MMU_H
 #define VFLASH_MMU_H
 
+#include <stddef.h>
 #include <stdint.h>
+
+#define VFLASH_CACHE_LINE_SIZE 32u
 
 #ifdef __cplusplus
 extern "C" {
@@ -80,20 +83,98 @@ vflash_mmu_result_t vflash_mmu_map_page(uint32_t va, uint32_t pa, uint32_t ap);
 vflash_mmu_result_t vflash_mmu_unmap_page(uint32_t va);
 
 //
-// Enable the ARM926EJ-S MMU. Requires the identity profile to remain
+// Map a 1 MiB section with explicit cacheability and bufferability bits.
+//
+// va:         Virtual base address (1 MiB aligned).
+// pa:         Physical base address (1 MiB aligned).
+// ap:         Access permission (VFLASH_MMU_PRIV_RW, USER_RO, or USER_RW).
+// cacheable:  Non-zero to set the C bit (1) in the L1 section descriptor.
+// bufferable: Non-zero to set the B bit (1) in the L1 section descriptor.
+//
+// Returns VFLASH_MMU_OK on success, or an error code on failure.
+//
+vflash_mmu_result_t vflash_mmu_map_section_ex(uint32_t va, uint32_t pa,
+                                              uint32_t ap, uint32_t cacheable,
+                                              uint32_t bufferable);
+
+//
+// Enable the ARM926EJ-S MMU, I-cache, write-back D-cache, and write buffer.
+// Requires the identity profile (including uncached MMIO windows) to remain
 // intact; tables are immutable while enabled. Call only from privileged ARM
-// state with IRQ/FIQ masked, caches off, and no firmware services running.
+// state with IRQ/FIQ masked and no firmware services running.
 //
 // Returns VFLASH_MMU_OK on success, or an error code on failure.
 //
 vflash_mmu_result_t vflash_mmu_enable(void);
 
 //
-// Disable the ARM926EJ-S MMU and restore flat physical addressing.
+// Clean/invalidate D-cache, disable the ARM926EJ-S MMU and caches, and
+// restore flat physical addressing.
 //
 // Returns VFLASH_MMU_OK on success, or an error code on failure.
 //
 vflash_mmu_result_t vflash_mmu_disable(void);
+
+//
+// Clean dirty D-cache lines covering [addr, addr + length) to SDRAM and drain
+// the write buffer. Use before handing a CPU-written buffer to hardware DMA.
+//
+// addr:   Start address of the memory range.
+// length: Length of the memory range in bytes.
+//
+#if defined(__arm__)
+//
+// Clean dirty D-cache lines covering [addr, addr + length) to SDRAM and drain
+// the write buffer. Use before handing a CPU-written buffer to hardware DMA.
+//
+// addr:   Start address of the memory range.
+// length: Length of the memory range in bytes.
+//
+void vflash_dcache_clean_range(const void *addr, size_t length);
+
+//
+// Invalidate D-cache lines covering [addr, addr + length) and drain the write
+// buffer. Unaligned boundary cache lines are cleaned before invalidation so
+// adjacent data is preserved. Use after hardware DMA writes to SDRAM.
+//
+// addr:   Start address of the memory range.
+// length: Length of the memory range in bytes.
+//
+void vflash_dcache_invalidate_range(void *addr, size_t length);
+
+//
+// Clean dirty D-cache lines and invalidate D-cache lines covering
+// [addr, addr + length), then drain the write buffer. Use before starting
+// device-to-memory DMA on a buffer that may hold stale dirty cache lines.
+//
+// addr:   Start address of the memory range.
+// length: Length of the memory range in bytes.
+//
+void vflash_dcache_clean_invalidate_range(void *addr, size_t length);
+
+//
+// Invalidate the entire ARM926EJ-S instruction cache and flush the prefetch
+// buffer.
+//
+void vflash_icache_invalidate_all(void);
+#else
+static inline void vflash_dcache_clean_range(const void *addr, size_t length)
+{
+    (void)addr;
+    (void)length;
+}
+static inline void vflash_dcache_invalidate_range(void *addr, size_t length)
+{
+    (void)addr;
+    (void)length;
+}
+static inline void vflash_dcache_clean_invalidate_range(void *addr, size_t length)
+{
+    (void)addr;
+    (void)length;
+}
+static inline void vflash_icache_invalidate_all(void) {}
+#endif
 
 //
 // Invalidate all entries in the unified TLB.

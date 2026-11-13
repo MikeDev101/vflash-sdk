@@ -14,11 +14,13 @@ static uint16_t s_conversion_buf[320 * 240] __attribute__((aligned(64)));
 typedef struct {
     vflash_renderer_t native_renderer;
     int initialized;
+    SDL_Texture *current_target;
 } VFLASH_RenderData;
 
 typedef struct {
     vflash_texture_t native_tex;
     int uploaded;
+    int is_target;
     vflash_texture_type_t native_type;
 } VFLASH_TextureData;
 
@@ -43,9 +45,17 @@ static int VFLASH_GetOutputSize(SDL_Renderer *renderer, int *w, int *h)
 
 static int VFLASH_CreateTexture(SDL_Renderer *renderer, SDL_Texture *texture)
 {
-    (void)renderer;
-    if (texture->w <= 0 || texture->h <= 0 || (texture->w & 1) != 0 ||
+    VFLASH_RenderData *rdata = (VFLASH_RenderData *)renderer->driverdata;
+    if (!rdata || !rdata->initialized) {
+        SDL_SetError("renderer not initialized");
+        return -1;
+    }
+    if (texture->w <= 0 || texture->h <= 0 ||
         texture->w > 320 || texture->h > 240) {
+        SDL_SetError("unsupported texture dimensions");
+        return -1;
+    }
+    if (texture->access != SDL_TEXTUREACCESS_TARGET && (texture->w & 1) != 0) {
         SDL_SetError("unsupported texture dimensions");
         return -1;
     }
@@ -54,6 +64,25 @@ static int VFLASH_CreateTexture(SDL_Renderer *renderer, SDL_Texture *texture)
     if (!tdata) {
         SDL_OutOfMemory();
         return -1;
+    }
+
+    if (texture->access == SDL_TEXTUREACCESS_TARGET) {
+        vflash_texture_type_t ttype = (texture->blendMode == SDL_BLENDMODE_NONE)
+            ? VFLASH_TEXTURE_OPAQUE
+            : VFLASH_TEXTURE_KEYED;
+        vflash_gpu_result_t res = vflash_renderer_create_target(&rdata->native_renderer,
+                                                                &tdata->native_tex,
+                                                                (uint32_t)texture->w,
+                                                                (uint32_t)texture->h,
+                                                                ttype);
+        if (res != VFLASH_GPU_OK) {
+            SDL_free(tdata);
+            SDL_SetError("failed to allocate offscreen render target");
+            return -1;
+        }
+        tdata->is_target = 1;
+        tdata->uploaded = 1;
+        tdata->native_type = ttype;
     }
 
     texture->driverdata = tdata;
@@ -197,7 +226,7 @@ static int VFLASH_UpdateTexture(SDL_Renderer *renderer, SDL_Texture *texture,
     vflash_gpu_result_t res = vflash_renderer_upload_texture(&rdata->native_renderer, &tdata->native_tex,
                                                              dst, (uint32_t)texture->w, (uint32_t)texture->h, native_type);
     if (res != VFLASH_GPU_OK) {
-        SDL_SetError("failed to upload texture to atlas");
+        SDL_SetError("failed to upload texture to atlas (%d)", (int)res);
         return -1;
     }
 
@@ -233,11 +262,31 @@ static void VFLASH_SetTextureScaleMode(SDL_Renderer *renderer, SDL_Texture *text
 
 static int VFLASH_SetRenderTarget(SDL_Renderer *renderer, SDL_Texture *texture)
 {
-    (void)renderer;
-    if (texture != NULL) {
-        SDL_SetError("render-to-texture unsupported");
+    VFLASH_RenderData *rdata = (VFLASH_RenderData *)renderer->driverdata;
+    if (!rdata || !rdata->initialized) {
+        SDL_SetError("renderer not initialized");
         return -1;
     }
+    if (texture == NULL) {
+        vflash_gpu_result_t res = vflash_renderer_set_target(&rdata->native_renderer, NULL);
+        if (res != VFLASH_GPU_OK) {
+            SDL_SetError("failed to restore default render target");
+            return -1;
+        }
+        rdata->current_target = NULL;
+        return 0;
+    }
+    VFLASH_TextureData *tdata = (VFLASH_TextureData *)texture->driverdata;
+    if (!tdata || !tdata->is_target) {
+        SDL_SetError("texture is not a render target");
+        return -1;
+    }
+    vflash_gpu_result_t res = vflash_renderer_set_target(&rdata->native_renderer, &tdata->native_tex);
+    if (res != VFLASH_GPU_OK) {
+        SDL_SetError("failed to select render target");
+        return -1;
+    }
+    rdata->current_target = texture;
     return 0;
 }
 
@@ -258,20 +307,32 @@ static int VFLASH_QueueSetDrawColor(SDL_Renderer *renderer, SDL_RenderCommand *c
 static int VFLASH_QueueDrawPoints(SDL_Renderer *renderer, SDL_RenderCommand *cmd,
                                   const SDL_FPoint *points, int count)
 {
-    (void)renderer;
-    (void)cmd;
-    (void)points;
-    (void)count;
+    SDL_FPoint *verts = (SDL_FPoint *)SDL_AllocateRenderVertices(renderer,
+                                                                 (size_t)count * sizeof(SDL_FPoint),
+                                                                 4, &cmd->data.draw.first);
+    if (!verts) {
+        return -1;
+    }
+    cmd->data.draw.count = (size_t)count;
+    for (int i = 0; i < count; ++i) {
+        verts[i] = points[i];
+    }
     return 0;
 }
 
 static int VFLASH_QueueDrawLines(SDL_Renderer *renderer, SDL_RenderCommand *cmd,
                                  const SDL_FPoint *points, int count)
 {
-    (void)renderer;
-    (void)cmd;
-    (void)points;
-    (void)count;
+    SDL_FPoint *verts = (SDL_FPoint *)SDL_AllocateRenderVertices(renderer,
+                                                                 (size_t)count * sizeof(SDL_FPoint),
+                                                                 4, &cmd->data.draw.first);
+    if (!verts) {
+        return -1;
+    }
+    cmd->data.draw.count = (size_t)count;
+    for (int i = 0; i < count; ++i) {
+        verts[i] = points[i];
+    }
     return 0;
 }
 
@@ -345,10 +406,75 @@ static int VFLASH_RunCommandQueue(SDL_Renderer *renderer, SDL_RenderCommand *cmd
             uint32_t rgb = ((uint32_t)cmd->data.color.r << 16) |
                            ((uint32_t)cmd->data.color.g << 8) |
                            (uint32_t)cmd->data.color.b;
-            int32_t sx = nr->clip_x, sy = nr->clip_y, sw = nr->clip_w, sh = nr->clip_h;
-            vflash_gpu_clip(nr->current, 0, 0, (int32_t)nr->config.playfield_width, (int32_t)nr->config.playfield_height);
-            vflash_renderer_clear(nr, rgb);
-            vflash_gpu_clip(nr->current, sx, sy, sw, sh);
+            if (nr->has_target && rdata->current_target &&
+                rdata->current_target->blendMode != SDL_BLENDMODE_NONE) {
+                if (cmd->data.color.a == 0) {
+                    rgb = 0;
+                } else if (rgb == 0) {
+                    rgb = 0x080808u;
+                }
+            }
+            if (!nr->has_target) {
+                int32_t sx = nr->clip_x, sy = nr->clip_y, sw = nr->clip_w, sh = nr->clip_h;
+                vflash_gpu_clip(nr->current, 0, 0, (int32_t)nr->config.playfield_width, (int32_t)nr->config.playfield_height);
+                vflash_renderer_clear(nr, rgb);
+                vflash_gpu_clip(nr->current, sx, sy, sw, sh);
+            } else {
+                vflash_renderer_clear(nr, rgb);
+            }
+            break;
+        }
+
+        case SDL_RENDERCMD_DRAW_POINTS: {
+            const SDL_FPoint *pts = (const SDL_FPoint *)((const uint8_t *)vertices + cmd->data.draw.first);
+            uint32_t rgb = ((uint32_t)cmd->data.draw.r << 16) |
+                           ((uint32_t)cmd->data.draw.g << 8) |
+                           (uint32_t)cmd->data.draw.b;
+            if (nr->has_target && rdata->current_target &&
+                rdata->current_target->blendMode != SDL_BLENDMODE_NONE) {
+                if (cmd->data.draw.a == 0) rgb = 0;
+                else if (rgb == 0) rgb = 0x080808u;
+            }
+            for (size_t i = 0; i < cmd->data.draw.count; ++i) {
+                vflash_renderer_fill_rect(nr, (int32_t)pts[i].x, (int32_t)pts[i].y, 1, 1, rgb);
+            }
+            break;
+        }
+
+        case SDL_RENDERCMD_DRAW_LINES: {
+            const SDL_FPoint *pts = (const SDL_FPoint *)((const uint8_t *)vertices + cmd->data.draw.first);
+            uint32_t rgb = ((uint32_t)cmd->data.draw.r << 16) |
+                           ((uint32_t)cmd->data.draw.g << 8) |
+                           (uint32_t)cmd->data.draw.b;
+            if (nr->has_target && rdata->current_target &&
+                rdata->current_target->blendMode != SDL_BLENDMODE_NONE) {
+                if (cmd->data.draw.a == 0) rgb = 0;
+                else if (rgb == 0) rgb = 0x080808u;
+            }
+            for (size_t i = 0; i + 1 < cmd->data.draw.count; ++i) {
+                int32_t x0 = (int32_t)pts[i].x, y0 = (int32_t)pts[i].y;
+                int32_t x1 = (int32_t)pts[i + 1].x, y1 = (int32_t)pts[i + 1].y;
+                int32_t dx = x1 >= x0 ? x1 - x0 : x0 - x1;
+                int32_t dy = y1 >= y0 ? y1 - y0 : y0 - y1;
+                if (dy == 0) {
+                    int32_t lx = x0 < x1 ? x0 : x1;
+                    vflash_renderer_fill_rect(nr, lx, y0, dx + 1, 1, rgb);
+                } else if (dx == 0) {
+                    int32_t ty = y0 < y1 ? y0 : y1;
+                    vflash_renderer_fill_rect(nr, x0, ty, 1, dy + 1, rgb);
+                } else {
+                    int32_t sx = x0 < x1 ? 1 : -1;
+                    int32_t sy = y0 < y1 ? 1 : -1;
+                    int32_t err = dx - dy;
+                    for (;;) {
+                        vflash_renderer_fill_rect(nr, x0, y0, 1, 1, rgb);
+                        if (x0 == x1 && y0 == y1) break;
+                        int32_t e2 = 2 * err;
+                        if (e2 > -dy) { err -= dy; x0 += sx; }
+                        if (e2 < dx) { err += dx; y0 += sy; }
+                    }
+                }
+            }
             break;
         }
 
@@ -357,6 +483,11 @@ static int VFLASH_RunCommandQueue(SDL_Renderer *renderer, SDL_RenderCommand *cmd
             uint32_t rgb = ((uint32_t)cmd->data.draw.r << 16) |
                            ((uint32_t)cmd->data.draw.g << 8) |
                            (uint32_t)cmd->data.draw.b;
+            if (nr->has_target && rdata->current_target &&
+                rdata->current_target->blendMode != SDL_BLENDMODE_NONE) {
+                if (cmd->data.draw.a == 0) rgb = 0;
+                else if (rgb == 0) rgb = 0x080808u;
+            }
             for (size_t i = 0; i < cmd->data.draw.count; ++i) {
                 vflash_renderer_fill_rect(nr, (int32_t)rects[i].x, (int32_t)rects[i].y,
                                           (int32_t)rects[i].w, (int32_t)rects[i].h, rgb);
@@ -370,6 +501,11 @@ static int VFLASH_RunCommandQueue(SDL_Renderer *renderer, SDL_RenderCommand *cmd
             if (tex && tex->driverdata) {
                 VFLASH_TextureData *tdata = (VFLASH_TextureData *)tex->driverdata;
                 if (tdata->uploaded) {
+                    if (tdata->is_target) {
+                        tdata->native_tex.type = (tex->blendMode == SDL_BLENDMODE_NONE)
+                            ? VFLASH_TEXTURE_OPAQUE
+                            : VFLASH_TEXTURE_KEYED;
+                    }
                     vflash_renderer_draw_sub(nr, &tdata->native_tex,
                                              copy->src.x, copy->src.y, copy->src.w, copy->src.h,
                                              (int32_t)copy->dst.x, (int32_t)copy->dst.y);
@@ -502,7 +638,7 @@ SDL_RenderDriver VFLASH_RenderDriver = {
     VFLASH_CreateRenderer,
     {
         "zevio",
-        SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC,
+        SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC | SDL_RENDERER_TARGETTEXTURE,
         8,
         {
             SDL_PIXELFORMAT_BGR555,

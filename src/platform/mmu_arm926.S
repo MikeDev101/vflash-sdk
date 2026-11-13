@@ -25,25 +25,41 @@ vflash_mmu_invalidate_tlb:
 vflash_mmu_activate:
     mov r1,#0
     mcr p15,0,r1,c7,c10,4
+    mcr p15,0,r1,c7,c5,0
+    mcr p15,0,r1,c7,c6,0
     mcr p15,0,r0,c2,c0,0
     mov r2,#1
     mcr p15,0,r2,c3,c0,0
     mcr p15,0,r1,c13,c0,0
     mcr p15,0,r1,c8,c7,0
     mrc p15,0,r2,c1,c0,0
-    bic r2,r2,#0x1000
-    bic r2,r2,#0x30c
-    orr r2,r2,#1
+    bic r2,r2,#0x300
+    orr r2,r2,#0x1000
+    orr r2,r2,#0x000D
     mcr p15,0,r2,c1,c0,0
     mcr p15,0,r1,c7,c5,4
     bx lr
 .global vflash_mmu_deactivate
 .type vflash_mmu_deactivate,%function
 vflash_mmu_deactivate:
+    mov r0,#0
+1:
+    mov r1,#0
+2:
+    orr r3,r0,r1
+    mcr p15,0,r3,c7,c14,2
+    add r1,r1,#32
+    cmp r1,#2048
+    blo 2b
+    add r0,r0,#0x40000000
+    cmp r0,#0
+    bne 1b
     mov r1,#0
     mcr p15,0,r1,c7,c10,4
+    mcr p15,0,r1,c7,c5,0
     mrc p15,0,r2,c1,c0,0
-    bic r2,r2,#1
+    bic r2,r2,#0x1000
+    bic r2,r2,#0x000D
     mcr p15,0,r2,c1,c0,0
     mcr p15,0,r1,c8,c7,0
     mcr p15,0,r1,c7,c5,4

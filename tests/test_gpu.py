@@ -218,6 +218,15 @@ int main(void) {
     assert(vflash_renderer_draw_sub(&r, &tex, 0, 0, 20, 16, 0, 0) == VFLASH_GPU_INVALID);
     assert(vflash_renderer_draw_sub(&r, &tex, 8, 0, 12, 16, 0, 0) == VFLASH_GPU_INVALID);
 
+    vflash_texture_t rt;
+    assert(vflash_renderer_create_target(NULL, &rt, 16, 16, VFLASH_TEXTURE_KEYED) == VFLASH_GPU_NOT_INITIALIZED);
+    assert(vflash_renderer_create_target(&r, NULL, 16, 16, VFLASH_TEXTURE_KEYED) == VFLASH_GPU_INVALID);
+    assert(vflash_renderer_create_target(&r, &rt, 0, 16, VFLASH_TEXTURE_KEYED) == VFLASH_GPU_INVALID);
+    assert(vflash_renderer_create_target(&r, &rt, 64, 8, VFLASH_TEXTURE_KEYED) == VFLASH_GPU_INVALID);
+    assert(vflash_renderer_set_target(NULL, NULL) == VFLASH_GPU_NOT_INITIALIZED);
+    assert(vflash_renderer_set_target(&r, &bad_tex) == VFLASH_GPU_INVALID);
+    assert(vflash_renderer_set_target(&r, NULL) == VFLASH_GPU_INVALID);
+
     return 0;
 }
 '''
@@ -423,6 +432,9 @@ class MMUTests(unittest.TestCase):
     def test_identity_enable_and_active_edit_rejection(self):
         self.assertEqual(self.lib.vflash_mmu_enable(), 6)
         self.assertEqual(self.lib.vflash_mmu_identity(), 0)
+        self.assertEqual(self.lib.vflash_mmu_descriptor(0x10000000, 1), 0x1000041E)
+        self.assertEqual(self.lib.vflash_mmu_descriptor(0xA8000000, 1), 0xA8000412)
+        self.assertEqual(self.lib.vflash_mmu_descriptor(0x90000000, 1), 0x90000412)
         self.assertEqual(self.lib.vflash_mmu_descriptor(0x30000000, 1), 0)
         self.assertEqual(self.lib.vflash_mmu_enable(), 0)
         self.assertEqual(self.lib.vflash_mmu_init(), 4)

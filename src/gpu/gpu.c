@@ -1,4 +1,7 @@
 #include "gpu_internal.h"
+#if defined(__arm__)
+#include "vflash/mmu.h"
+#endif
 #include "vflash/draw.h"
 #include <stddef.h>
 int gpu_surface_valid(const vflash_gpu_surface_t *s)
@@ -106,6 +109,9 @@ vflash_gpu_result_t vflash_gpu_surface_register_tiled_ex(vflash_gpu_surface_t *s
     if (bytes<cap*2u) return VFLASH_GPU_INVALID;
     vflash_gpu_surface_t t={{pixels,w,h,1024,cap,VFLASH_BGR555},pa,1,0,0,(int32_t)w,(int32_t)h,VFLASH_GPU_LAYOUT_ZEVIO_TILED};
     if (!gpu_tiled_valid(&t)) return VFLASH_GPU_INVALID;
+#if defined(__arm__)
+    vflash_dcache_clean_invalidate_range(pixels, cap*2u);
+#endif
     *s=t;return VFLASH_GPU_OK;
 }
 vflash_gpu_result_t vflash_gpu_surface_register_tiled(vflash_gpu_surface_t *s,void *pixels,uint32_t pa,uint32_t bytes)

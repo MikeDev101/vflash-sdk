@@ -54,8 +54,8 @@ def run_suite(suite, emulator, bios, out):
         observed = {k: word(k) for k in ("mmu_status", "mmu_enabled_control", "mmu_disabled_control",
                                          "mmu_init_ticks", "mmu_tables_bytes", "mmu_probe")}
         if not (observed["mmu_status"] == 0x4D4D5531 and observed["mmu_probe"] == 0x1926ABCD
-                and (observed["mmu_enabled_control"] & 1) and not (observed["mmu_disabled_control"] & 1)
-                and not (observed["mmu_enabled_control"] & 0x1004)):
+                and (observed["mmu_enabled_control"] & 0x100D) == 0x100D
+                and not (observed["mmu_disabled_control"] & 0x1005)):
             raise ValueError(f"MMU bring-up failed: {observed}")
         if (sy["vflash_mmu_l1"] & 16383) or (sy["vflash_mmu_l2"] & 1023):
             raise ValueError("table alignment")
@@ -106,7 +106,7 @@ def run_suite(suite, emulator, bios, out):
         elif suite == "cpp":
             elf = ROOT / f"build/vflash_cpp_{mmu}.elf"
             disc = ROOT / f"build/cpp/{mmu}/homebrew.cue"
-            extra = ["--frames", "500"]
+            extra = ["--frames", "550"]
         elif suite == "fmv":
             elf = ROOT / f"build/vflash_fmv_{mmu}.elf"
             disc = ROOT / f"build/fmv/{mmu}/homebrew.cue"

@@ -32,46 +32,62 @@ no emulator-specific workaround is embedded in this SDK driver.
 
 ## Driver and memory map
 
-Public API: `include/vflash/mmu.h`; implementation: `src/platform/mmu.c` and
-`mmu_arm926.S`. Static BSS tables comprise one 16384-byte-aligned L1 (16384 bytes)
+Public API: `include/vflash/mmu.h`; implementation: `src/platform/mmu.c`,
+`src/platform/mmu_arm926.S`, and `src/platform/cache_arm926.S`. Static BSS tables
+comprise one 16384-byte-aligned L1 (16384 bytes)
 and four 1024-byte-aligned coarse L2 tables (4096 bytes), plus 28 bytes of state
 and linker alignment padding. The diagnostic also has a page-aligned probe.
 All storage is linker-owned below panic storage, heap symbols and main stack.
 No allocation occurs. No memory protection is claimed for the tables themselves.
 
-Identity sections cover only these windows (section granularity includes
-reserved peripheral offsets; only verified timer/video registers are accessed):
+Identity sections cover these windows with cache attributes matched to hardware
+DMA and MMIO rules:
 
-| Address interval, end exclusive | Use |
-| --- | --- |
-| 0x00000000–0x00200000 | ROM/low vectors |
-| 0x10000000–0x11000000 | SDRAM: firmware trampolines, code, tables, framebuffers, panic and stacks |
-| 0x90000000–0x90100000 | Timer/PMU peripheral window |
-| 0xB8000000–0xB8100000 | Video peripheral window |
+| Address interval, end exclusive | Attributes | Use |
+| --- | --- | --- |
+| 0x00000000–0x00200000 | C=1, B=0 | ROM/low vectors |
+| 0x10000000–0x11000000 | C=1, B=1 | SDRAM: firmware trampolines, code, tables, framebuffers, panic and stacks |
+| 0x90000000–0x90100000 | C=0, B=0 | Timer/PMU/UART0 peripheral window |
+| 0xA8000000–0xA8100000 | C=0, B=0 | Zevio 2D/3D GPU peripheral window |
+| 0xB0000000–0xB0100000 | C=0, B=0 | Audio peripheral window |
+| 0xB8000000–0xB8100000 | C=0, B=0 | Video peripheral window |
+| 0xC4000000–0xC4100000 | C=0, B=0 | CD-ROM peripheral window |
 
-All mappings use domain 0, C=B=0. DACR is 1: domain 0 client, other domains
-no access. Sections use `(PA & ~0xfffff) | AP<<10 | 0x12`; coarse descriptors
+All mappings use domain 0. DACR is 1: domain 0 client, other domains
+no access. Sections use `(PA & ~0xfffff) | AP<<10 | C<<3 | B<<2 | 0x12`; coarse descriptors
 use aligned table PA plus 0x11; small pages use PA plus AP*0x550 plus 2,
 replicating AP in all four 1 KiB subpages. AP=1 is privileged RW/user denied;
 AP=2 is privileged RW/user RO, not privileged RO; AP=3 permits both RW.
-AP=0 and cache/buffer attribute customization are deliberately rejected.
+`vflash_mmu_map_section_ex` permits explicit `C`/`B` selection (default `0, 0` via
+`vflash_mmu_map_section`), and re-mapping an existing section with an identical
+descriptor returns `VFLASH_MMU_OK`.
 
-Mappings can be edited only with MMU off. Alignment, AP values, duplicate
+Mappings can be edited only with MMU off. Alignment, AP values, conflicting
 mappings and four-table capacity are checked. Existing sections are never
 silently split or overwritten. Unmapped page slots remain fault descriptors;
 this is not tested fault delivery or a usable guarded-stack allocator yet.
 Initialization deterministically clears all tables. A coarse table is not
 reclaimed by unmap until the next init.
 
-Activation accepts only ARM SVC with IRQ/FIQ masked, low vectors, caches off
-and the complete required identity profile intact. Assembly drains writes,
-loads TTBR, sets client DACR, clears FCSE PID, invalidates unified TLB, sets M
-with caches/write-buffer/S/R disabled, flushes prefetch, and returns through an
-identity-mapped instruction stream. Disable is supported only for mappings
-activated by this driver, under the same identity/CPU contract. Mapping edits
-while active return BUSY; transition back to identity/off, edit, then re-enable.
-Do not call transition routines while executing or using a stack through an
-alias. IRQ/FIQ handlers and firmware services remain outside the contract.
+Activation accepts only ARM SVC with IRQ/FIQ masked, low vectors, and the complete
+required identity profile intact (with MMIO windows uncached/unbuffered).
+Assembly drains the write buffer, loads TTBR, sets client DACR, clears FCSE PID,
+invalidates unified TLB and I/D caches, sets `M|C|W|I` (`0x100D`: MMU, write-back
+D-cache, write buffer, I-cache) with `S|R` cleared, flushes prefetch, and returns
+through an identity-mapped instruction stream. Disable cleans and invalidates the
+8 KiB 4-way/64-set D-cache by set/way (`mcr p15, 0, r3, c7, c14, 2`) and drains
+the write buffer before clearing `M|C|W|I`.
+
+### Cache maintenance and DMA coherency
+
+`include/vflash/mmu.h` exports ARM926EJ-S (32-byte cache line) maintenance helpers:
+
+- `vflash_dcache_clean_range(addr, length)`: cleans dirty D-cache lines by MVA (`c7, c10, 1`) and drains the write buffer (`c7, c10, 4`). Call before CPU-to-device DMA (GPU command lists, texture uploads, video scanout, audio ring writes, CD-ROM write/scratch buffers).
+- `vflash_dcache_invalidate_range(addr, length)`: cleans+invalidates any unaligned boundary lines (`c7, c14, 1`) and invalidates interior lines (`c7, c6, 1`). Call after device-to-CPU DMA (CD-ROM sector reads).
+- `vflash_dcache_clean_invalidate_range(addr, length)`: cleans+invalidates D-cache lines (`c7, c14, 1`) and drains the write buffer.
+- `vflash_icache_invalidate_all()`: invalidates the entire I-cache (`c7, c5, 0`) and drains prefetch.
+
+On host builds these compile to inline no-ops. All SDK hardware drivers (`gpu_zevio.c`, `gpu.c`, `video.c`, `audio.c`, `cd.c`) call these helpers automatically around DMA transfers.
 
 Descriptor and CP15 references: Arm DDI0198D sections 2.3.3–2.3.9,
 3.2, 3.4 and 3.6, hosted by the processor vendor:

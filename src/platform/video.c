@@ -2,6 +2,7 @@
 #include "vflash/draw.h"
 #include "vflash/clock.h"
 #include "vflash/audio.h"
+#include "vflash/mmu.h"
 #ifdef VFLASH_DOUBLE_BUFFER
 #include "vflash/clock.h"
 uint16_t video_back_pixels[VFLASH_WIDTH * VFLASH_HEIGHT] __attribute__((aligned(64)));
@@ -65,8 +66,9 @@ int vflash_video_present(const vflash_framebuffer_t *fb)
 #endif
         fb->width != VFLASH_WIDTH || fb->height != VFLASH_HEIGHT ||
         fb->stride != VFLASH_WIDTH) return 0;
-    // Firmware handoff has MMU/caches off. Order CPU stores before enabling
-    // scanout; no cache clean or DMA submission is needed in this model.
+    // Clean CPU D-cache for the linear framebuffer and drain write buffer
+    // before handing the bank to the video scanout engine.
+    vflash_dcache_clean_range(fb->pixels, sizeof(video_pixels));
     __asm__ volatile("" ::: "memory");
 #ifdef VFLASH_DOUBLE_BUFFER
     // Status bit 1 is set by ve_vblank and cleared by writing 1. Wait for

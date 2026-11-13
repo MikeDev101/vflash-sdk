@@ -13,6 +13,7 @@ function(vflash_add_program target script)
         "${VFLASH_SDK_DIR}/src/runtime/alloc.c"
         "${VFLASH_SDK_DIR}/src/runtime/cxxabi.cpp"
         "${VFLASH_SDK_DIR}/src/platform/clock.c"
+        "${VFLASH_SDK_DIR}/src/platform/cache_arm926.S"
         "${VFLASH_SDK_DIR}/src/platform/video.c"
         "${VFLASH_SDK_DIR}/src/platform/input.c"
         "${VFLASH_SDK_DIR}/src/platform/audio.c"

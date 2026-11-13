@@ -51,6 +51,29 @@ typedef struct
     uint32_t atlas_height;     // Atlas height within surface_height
 } vflash_renderer_config_t;
 
+#define VFLASH_MAX_TARGET_OPS 256u
+
+//
+// Deferred GPU command recorded when drawing into an offscreen render target
+// while the opposite double-buffer surface is actively scanned out.
+//
+typedef struct
+{
+    uint8_t op;
+    uint8_t reserved;
+    int16_t sx;
+    int16_t sy;
+    int16_t w;
+    int16_t h;
+    int16_t dx;
+    int16_t dy;
+    int16_t cx;
+    int16_t cy;
+    int16_t cw;
+    int16_t ch;
+    uint32_t rgb;
+} vflash_target_op_t;
+
 //
 // Double-buffered Zevio 2D renderer state and atlas allocator.
 //
@@ -72,6 +95,14 @@ typedef struct
     int32_t clip_h;
     uint32_t initialized;
     uint32_t generation_id;
+    uint32_t has_target;
+    vflash_texture_t target;
+    int32_t saved_clip_x;
+    int32_t saved_clip_y;
+    int32_t saved_clip_w;
+    int32_t saved_clip_h;
+    uint32_t target_op_count;
+    vflash_target_op_t target_ops[VFLASH_MAX_TARGET_OPS];
 } vflash_renderer_t;
 
 //
@@ -218,6 +249,35 @@ vflash_gpu_result_t vflash_renderer_draw_sub(vflash_renderer_t *r,
                                              int32_t sx, int32_t sy,
                                              int32_t w, int32_t h,
                                              int32_t dx, int32_t dy);
+
+//
+// Allocate an offscreen render-target texture in the renderer atlas and clear
+// it to transparent/black.
+//
+// r:      Initialized renderer instance.
+// tex:    Output texture handle for the render target.
+// width:  Target width in pixels.
+// height: Target height in pixels.
+// type:   Texture blending/keying mode when compositing the target.
+//
+// Returns VFLASH_GPU_OK on success, or VFLASH_GPU_OUT_OF_MEMORY / error.
+//
+vflash_gpu_result_t vflash_renderer_create_target(vflash_renderer_t *r,
+                                                 vflash_texture_t *tex,
+                                                 uint32_t width,
+                                                 uint32_t height,
+                                                 vflash_texture_type_t type);
+
+//
+// Select an offscreen render target (or NULL for the default playfield).
+//
+// r:      Initialized renderer instance.
+// target: Render target texture handle, or NULL for the playfield.
+//
+// Returns VFLASH_GPU_OK on success, or an error code.
+//
+vflash_gpu_result_t vflash_renderer_set_target(vflash_renderer_t *r,
+                                              const vflash_texture_t *target);
 
 //
 // Present the current playfield buffer and swap to the next backbuffer.
