@@ -1,0 +1,16 @@
+---
+Language: Cpp
+BasedOnStyle: Allman
+IndentWidth: 4
+TabWidth: 8
+UseTab: Never
+ColumnLimit: 80
+BreakBeforeBraces: Allman
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortBlocksOnASingleLine: Never
+AllowShortFunctionsOnASingleLine: None
+PointerAlignment: Right
+SpaceAfterCStyleCast: true
+SortIncludes: Never
+...
