@@ -1,0 +1,47 @@
+name: Build and Verify V.Flash SDK
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install toolchain and build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake \
+            ninja-build \
+            gcc-arm-none-eabi \
+            binutils-arm-none-eabi \
+            xorriso \
+            python3 \
+            gcc
+
+      - name: Configure CMake (V.Flash ARM toolchain)
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-vflash.cmake
+
+      - name: Build all SDK libraries and demo executables
+        run: cmake --build build --parallel
+
+      - name: Build all demo disc images
+        run: |
+          disc_targets=$(ninja -C build -t targets all | awk -F: '/(^|_)disc_image: phony/ {print $1}')
+          echo "Building disc targets:"
+          echo "$disc_targets"
+          cmake --build build --parallel --target $disc_targets
+
+      - name: Run CTest
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Run host unit tests
+        run: python3 -m unittest discover -s tests -v
