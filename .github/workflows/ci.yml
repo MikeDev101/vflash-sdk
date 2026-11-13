@@ -21,6 +21,8 @@ jobs:
             ninja-build \
             gcc-arm-none-eabi \
             binutils-arm-none-eabi \
+            libnewlib-arm-none-eabi \
+            libstdc++-arm-none-eabi-newlib \
             xorriso \
             python3 \
             gcc
