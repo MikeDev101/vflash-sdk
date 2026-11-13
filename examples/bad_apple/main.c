@@ -396,6 +396,10 @@ void vflash_main(void)
             /* GREEN: Restart */
             if (st->pressed & VFLASH_BTN_GREEN) {
                 vflash_video_restart(&s_player);
+                s_fps_frame_count = 0;
+                s_fps_whole = 0;
+                s_fps_frac = 0;
+                s_last_fps_ticks = vflash_clock_ticks();
             }
             /* YELLOW: Toggle HUD */
             if (st->pressed & VFLASH_BTN_YELLOW) {
@@ -405,15 +409,6 @@ void vflash_main(void)
                         clear_letterbox_borders(&back_fb, &s_player);
                     }
                 }
-            }
-            /* BLUE: Return to loading screen demo */
-            if (st->pressed & VFLASH_BTN_BLUE) {
-                vflash_loading_init();
-                vflash_loading_set_progress(50);
-                vflash_loading_set_status("Testing loading screen");
-                vflash_loading_render();
-                for (volatile int d = 0; d < 500000; ++d) {}
-                vflash_loading_finish();
             }
             /* OK: Play / Pause */
             if (st->pressed & VFLASH_BTN_OK) {

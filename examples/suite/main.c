@@ -274,12 +274,10 @@ static void draw_hex8(vflash_framebuffer_t *fb, int32_t x, int32_t y,
     font_draw_string(fb, x, y, buf, fg, bg);
 }
 
-static void draw_test_hud(vflash_framebuffer_t *fb, uint32_t test_idx,
-                          const char *title, uint32_t step, uint32_t max_steps,
-                          bool batch_mode)
+static void draw_test_hud_overlay(vflash_framebuffer_t *fb, uint32_t test_idx,
+                                  const char *title, uint32_t step, uint32_t max_steps,
+                                  bool batch_mode)
 {
-    draw_clear(fb, COL_BG);
-
     /* Top Header Banner */
     draw_rect(fb, 0, 0, 320, 24, COL_HEADER);
     draw_rect(fb, 0, 23, 320, 1, COL_BORDER);
@@ -317,6 +315,14 @@ static void draw_test_hud(vflash_framebuffer_t *fb, uint32_t test_idx,
                      suite_tests_failed ? COL_RED : COL_GRAY, COL_HEADER);
         font_draw_string(fb, 146, 228, "[BLUE/EXIT] Menu", COL_YELLOW, COL_HEADER);
     }
+}
+
+static void draw_test_hud(vflash_framebuffer_t *fb, uint32_t test_idx,
+                          const char *title, uint32_t step, uint32_t max_steps,
+                          bool batch_mode)
+{
+    draw_clear(fb, COL_BG);
+    draw_test_hud_overlay(fb, test_idx, title, step, max_steps, batch_mode);
 }
 
 static bool check_abort_to_menu(void)
@@ -1573,7 +1579,7 @@ static bool run_test_fmv(vflash_framebuffer_t *fb, bool batch_mode)
             int frame_ready = vflash_video_update(&s_fmv_player, fb);
             if (frame_ready) {
                 f++;
-                draw_test_hud(fb, 7, "MJP FMV PLAYBACK", f, total_frames, batch_mode);
+                draw_test_hud_overlay(fb, 7, "MJP FMV PLAYBACK", f, total_frames, batch_mode);
 
                 /* Telemetry panel below the video (y=160..217) */
                 draw_box_border(fb, 8, 160, 304, 58, COL_PANEL, COL_BORDER);

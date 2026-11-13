@@ -258,6 +258,20 @@ static int decode_and_render_frame(vflash_video_player_t *player, vflash_framebu
     return 0;
 }
 
+static void init_video_audio(vflash_video_player_t *player) {
+    if (player->audio_flags != 0) {
+        vflash_audio_config_t cfg;
+        cfg.sample_rate = 22050;
+        cfg.channels = 1;
+        cfg.format = VFLASH_AUDIO_FMT_S16LE;
+        cfg.buffer_samples = 4096;
+        if (vflash_audio_init(&cfg)) {
+            player->audio_enabled = true;
+        }
+    }
+    player->audio_samples_queued = 0;
+}
+
 int vflash_video_open(vflash_video_player_t *player, const char *path, int x, int y) {
     if (!player || !path) return -1;
     memset(player, 0, sizeof(*player));
@@ -312,16 +326,7 @@ int vflash_video_open(vflash_video_player_t *player, const char *path, int x, in
     player->last_tick = vflash_clock_ticks();
     player->tick_accumulator = 0;
 
-    if (player->audio_flags != 0) {
-        vflash_audio_config_t cfg;
-        cfg.sample_rate = 22050;
-        cfg.channels = 1;
-        cfg.format = VFLASH_AUDIO_FMT_S16LE;
-        cfg.buffer_samples = 4096;
-        if (vflash_audio_init(&cfg)) {
-            player->audio_enabled = true;
-        }
-    }
+    init_video_audio(player);
 
     return 0;
 }
@@ -363,8 +368,12 @@ int vflash_video_play(vflash_video_player_t *player) {
     if (player->state == VFLASH_VIDEO_STOPPED || player->state == VFLASH_VIDEO_FINISHED) {
         vflash_fs_seek(player->fd, (int32_t)player->data_start_offset, SEEK_SET);
         player->current_frame = 0;
-        reset_playback_clock(player);
+        player->dropped_frames = 0;
         player->frame_decoded = false;
+        if (player->audio_enabled) {
+            init_video_audio(player);
+        }
+        reset_playback_clock(player);
     } else if (player->state == VFLASH_VIDEO_PAUSED) {
         player->last_tick = vflash_clock_ticks();
         if (player->audio_enabled) {
@@ -390,12 +399,15 @@ int vflash_video_stop(vflash_video_player_t *player) {
     if (!player || player->fd < 0) return -1;
     vflash_fs_seek(player->fd, (int32_t)player->data_start_offset, SEEK_SET);
     player->current_frame = 0;
-    reset_playback_clock(player);
+    player->dropped_frames = 0;
     player->frame_decoded = false;
     player->state = VFLASH_VIDEO_STOPPED;
     if (player->audio_enabled) {
         vflash_audio_pause(true);
+        init_video_audio(player);
+        vflash_audio_pause(true);
     }
+    reset_playback_clock(player);
     return 0;
 }
 
