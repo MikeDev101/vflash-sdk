@@ -1,11 +1,9 @@
 # V.Flash SDK Coding Style Guidelines
 
-These guidelines adapt Chocolate Doom's coding philosophy for the V.Flash SDK.
+These guidelines adapt [Chocolate Doom's coding philosophy](https://raw.githubusercontent.com/chocolate-doom/chocolate-doom/master/HACKING.md) for the V.Flash SDK.
 They apply to all SDK headers, platform drivers, graphics code, and examples
 (excluding third-party vendor code such as `src/graphics/picojpeg.c` and
 `external/SDL2/`).
-
-These guidelines are based on [Chocolate Doom's coding philosophy.](https://raw.githubusercontent.com/chocolate-doom/chocolate-doom/master/HACKING.md)
 
 ## Formatting & Layout
 
