@@ -102,6 +102,7 @@ typedef struct
     int32_t saved_clip_w;
     int32_t saved_clip_h;
     uint32_t target_op_count;
+    uint8_t target_op_overflow;
     vflash_target_op_t target_ops[VFLASH_MAX_TARGET_OPS];
 } vflash_renderer_t;
 

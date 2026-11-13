@@ -252,5 +252,23 @@ if(VFLASH_ENABLE_SDL2 AND TARGET SDL2)
 
             math(EXPR sdl2_view "${sdl2_view}+1")
         endforeach()
+
+        set(pen_target vflash_gpu_pen_stress_${mmu})
+        vflash_add_program(${pen_target} firmware-disc.ld
+            pen_stress.c
+            ${CMAKE_SOURCE_DIR}/src/platform/clock.c
+            ${sdl2_gpu_sources}
+        )
+        target_include_directories(${pen_target} PRIVATE
+            "${CMAKE_SOURCE_DIR}/include/sdl2_vflash"
+            "${CMAKE_SOURCE_DIR}/external/SDL2/include"
+        )
+        target_compile_definitions(${pen_target} PRIVATE DYNAPI_NEEDS_DLOPEN=1)
+        if(mmu STREQUAL "on")
+            target_sources(${pen_target} PRIVATE ${CMAKE_SOURCE_DIR}/src/platform/mmu.c ${CMAKE_SOURCE_DIR}/src/platform/mmu_arm926.S)
+            target_compile_definitions(${pen_target} PRIVATE GPU_SDL2_MMU=1)
+        endif()
+        target_link_libraries(${pen_target} PRIVATE -Wl,--start-group SDL2 gcc -Wl,--end-group)
+        vflash_add_disc(gpu_pen_stress_${mmu}_disc_image ${pen_target} gpu/pen_stress/${mmu})
     endforeach()
 endif()

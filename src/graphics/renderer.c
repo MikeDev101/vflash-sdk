@@ -1,5 +1,7 @@
 #include "vflash/renderer.h"
 #include "vflash/draw.h"
+#include "vflash/mmu.h"
+#include <string.h>
 
 vflash_gpu_result_t vflash_renderer_init(vflash_renderer_t *r, const vflash_renderer_config_t *cfg)
 {
@@ -48,6 +50,7 @@ vflash_gpu_result_t vflash_renderer_init(vflash_renderer_t *r, const vflash_rend
     r->generation_id = 1;
     r->has_target = 0;
     r->target_op_count = 0;
+    r->target_op_overflow = 0;
     r->initialized = 1;
     return VFLASH_GPU_OK;
 }
@@ -75,6 +78,7 @@ vflash_gpu_result_t vflash_renderer_reset_atlas(vflash_renderer_t *r)
     r->current = &r->surf_a;
     r->has_target = 0;
     r->target_op_count = 0;
+    r->target_op_overflow = 0;
     r->clip_x = 0;
     r->clip_y = 0;
     r->clip_w = (int32_t)r->config.playfield_width;
@@ -167,6 +171,29 @@ static vflash_gpu_result_t exec_target_op(vflash_renderer_t *r,
                                      op->dx, op->dy);
 }
 
+static void sync_atlas_tiles(const vflash_renderer_t *r,
+                             vflash_gpu_surface_t *src,
+                             vflash_gpu_surface_t *dst)
+{
+    if (!r->config.atlas_width || !r->config.atlas_height) return;
+    uint32_t tx0 = r->config.atlas_x >> 5;
+    uint32_t tx1 = (r->config.atlas_x + r->config.atlas_width - 1u) >> 5;
+    uint32_t ty0 = r->config.atlas_y >> 3;
+    uint32_t ty1 = (r->config.atlas_y + r->config.atlas_height - 1u) >> 3;
+    const uint8_t *sbase = (const uint8_t *)src->fb.pixels;
+    uint8_t *dbase = (uint8_t *)dst->fb.pixels;
+
+    for (uint32_t ty = ty0; ty <= ty1; ++ty) {
+        uint32_t row_off = ty * 16384u;
+        for (uint32_t tx = tx0; tx <= tx1; ++tx) {
+            uint32_t off = row_off + tx * 512u;
+            vflash_dcache_invalidate_range((void *)(uintptr_t)(sbase + off), 512u);
+            memcpy(dbase + off, sbase + off, 512u);
+            vflash_dcache_clean_range(dbase + off, 512u);
+        }
+    }
+}
+
 static vflash_gpu_result_t submit_target_op(vflash_renderer_t *r,
                                             const vflash_target_op_t *op)
 {
@@ -185,8 +212,12 @@ static vflash_gpu_result_t submit_target_op(vflash_renderer_t *r,
         return res;
     }
 
+    if (r->target_op_overflow) {
+        return VFLASH_GPU_OK;
+    }
     if (r->target_op_count >= VFLASH_MAX_TARGET_OPS) {
-        return VFLASH_GPU_OUT_OF_MEMORY;
+        r->target_op_overflow = 1;
+        return VFLASH_GPU_OK;
     }
     r->target_ops[r->target_op_count++] = *op;
     return VFLASH_GPU_OK;
@@ -526,14 +557,21 @@ vflash_gpu_result_t vflash_renderer_present(vflash_renderer_t *r)
     if (res) return res;
 
     vflash_gpu_surface_t *other = other_surface(r);
-    for (uint32_t i = 0; i < r->target_op_count; ++i) {
-        res = exec_target_op(r, other, &r->target_ops[i]);
-        if (res) {
-            r->target_op_count = 0;
-            return res;
+    if (r->target_op_overflow) {
+        vflash_gpu_wait_idle(&r->gpu);
+        sync_atlas_tiles(r, r->current, other);
+    } else {
+        for (uint32_t i = 0; i < r->target_op_count; ++i) {
+            res = exec_target_op(r, other, &r->target_ops[i]);
+            if (res) {
+                r->target_op_count = 0;
+                r->target_op_overflow = 0;
+                return res;
+            }
         }
     }
     r->target_op_count = 0;
+    r->target_op_overflow = 0;
     r->frame_count++;
     r->current = other;
 

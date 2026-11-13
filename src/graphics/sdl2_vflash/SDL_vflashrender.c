@@ -376,6 +376,92 @@ static int VFLASH_QueueCopy(SDL_Renderer *renderer, SDL_RenderCommand *cmd, SDL_
     return 0;
 }
 
+typedef struct {
+    float x;
+    float y;
+    SDL_Color color;
+} VFLASH_GeomVert;
+
+static int VFLASH_QueueGeometry(SDL_Renderer *renderer, SDL_RenderCommand *cmd,
+                                SDL_Texture *texture,
+                                const float *xy, int xy_stride,
+                                const SDL_Color *color, int color_stride,
+                                const float *uv, int uv_stride,
+                                int num_vertices, const void *indices,
+                                int num_indices, int size_indices,
+                                float scale_x, float scale_y)
+{
+    (void)uv;
+    (void)uv_stride;
+    if (texture != NULL) {
+        SDL_SetError("textured SDL_RenderGeometry not supported");
+        return -1;
+    }
+    int count = indices ? num_indices : num_vertices;
+    if (count <= 0) {
+        cmd->data.draw.count = 0;
+        return 0;
+    }
+    VFLASH_GeomVert *verts = (VFLASH_GeomVert *)SDL_AllocateRenderVertices(
+        renderer, (size_t)count * sizeof(VFLASH_GeomVert), 4, &cmd->data.draw.first);
+    if (!verts) {
+        return -1;
+    }
+    cmd->data.draw.count = (size_t)count;
+    cmd->data.draw.texture = NULL;
+    for (int i = 0; i < count; ++i) {
+        int vi = i;
+        if (indices) {
+            if (size_indices == 1) vi = ((const Uint8 *)indices)[i];
+            else if (size_indices == 2) vi = ((const Uint16 *)indices)[i];
+            else vi = (int)((const Uint32 *)indices)[i];
+        }
+        const float *xy_p = (const float *)((const uint8_t *)xy + vi * xy_stride);
+        const SDL_Color *c_p = (const SDL_Color *)((const uint8_t *)color + vi * color_stride);
+        verts[i].x = xy_p[0] * scale_x;
+        verts[i].y = xy_p[1] * scale_y;
+        verts[i].color = *c_p;
+    }
+    return 0;
+}
+
+static void draw_solid_triangle(vflash_renderer_t *nr,
+                                const VFLASH_GeomVert *a,
+                                const VFLASH_GeomVert *b,
+                                const VFLASH_GeomVert *c,
+                                uint32_t rgb)
+{
+    if (a->y > b->y) { const VFLASH_GeomVert *t = a; a = b; b = t; }
+    if (a->y > c->y) { const VFLASH_GeomVert *t = a; a = c; c = t; }
+    if (b->y > c->y) { const VFLASH_GeomVert *t = b; b = c; c = t; }
+
+    int y0 = (int)(a->y + 0.5f);
+    int y1 = (int)(b->y + 0.5f);
+    int y2 = (int)(c->y + 0.5f);
+    if (y0 == y2) return;
+
+    float dy02 = c->y - a->y;
+    float dy01 = b->y - a->y;
+    float dy12 = c->y - b->y;
+
+    for (int y = y0; y <= y2; ++y) {
+        float fy = (float)y + 0.5f;
+        if (fy < a->y || fy > c->y) continue;
+        float x_long = a->x + (c->x - a->x) * ((fy - a->y) / dy02);
+        float x_short;
+        if (fy <= b->y) {
+            x_short = (dy01 > 0.001f) ? (a->x + (b->x - a->x) * ((fy - a->y) / dy01)) : a->x;
+        } else {
+            x_short = (dy12 > 0.001f) ? (b->x + (c->x - b->x) * ((fy - b->y) / dy12)) : b->x;
+        }
+        int xl = (int)((x_long < x_short ? x_long : x_short) + 0.5f);
+        int xr = (int)((x_long > x_short ? x_long : x_short) + 0.5f);
+        if (xr >= xl) {
+            vflash_renderer_fill_rect(nr, xl, y, xr - xl + 1, 1, rgb);
+        }
+    }
+}
+
 static int VFLASH_RunCommandQueue(SDL_Renderer *renderer, SDL_RenderCommand *cmd,
                                   void *vertices, size_t vertsize)
 {
@@ -514,6 +600,26 @@ static int VFLASH_RunCommandQueue(SDL_Renderer *renderer, SDL_RenderCommand *cmd
             break;
         }
 
+        case SDL_RENDERCMD_GEOMETRY: {
+            const VFLASH_GeomVert *verts = (const VFLASH_GeomVert *)((const uint8_t *)vertices + cmd->data.draw.first);
+            size_t count = cmd->data.draw.count;
+            int keyed = (nr->has_target && rdata->current_target &&
+                         rdata->current_target->blendMode != SDL_BLENDMODE_NONE);
+            for (size_t i = 0; i + 2 < count; i += 3) {
+                SDL_Color col = verts[i].color;
+                uint32_t rgb = ((uint32_t)col.r << 16) | ((uint32_t)col.g << 8) | (uint32_t)col.b;
+                if (keyed) {
+                    if (col.a == 0) {
+                        rgb = 0;
+                    } else if (rgb == 0) {
+                        rgb = 0x080808u;
+                    }
+                }
+                draw_solid_triangle(nr, &verts[i], &verts[i + 1], &verts[i + 2], rgb);
+            }
+            break;
+        }
+
         default:
             break;
         }
@@ -623,6 +729,7 @@ static int VFLASH_CreateRenderer(SDL_Renderer *renderer, SDL_Window *window, Uin
     renderer->QueueDrawLines = VFLASH_QueueDrawLines;
     renderer->QueueFillRects = VFLASH_QueueFillRects;
     renderer->QueueCopy = VFLASH_QueueCopy;
+    renderer->QueueGeometry = VFLASH_QueueGeometry;
     renderer->RunCommandQueue = VFLASH_RunCommandQueue;
     renderer->RenderReadPixels = VFLASH_RenderReadPixels;
     renderer->RenderPresent = VFLASH_RenderPresent;
