@@ -148,14 +148,18 @@ static inline uint16_t q16_to_f16(int32_t q)
 }
 
 static inline void emit_vtx_q16(uint32_t *buf, uint32_t *idx,
-                                const vflash_gpu_quad_vertex_t *v)
+                                const vflash_gpu_quad_vertex_t *v,
+                                uint32_t with_normal)
 {
     uint16_t fx = q16_to_f16(v->x);
     uint16_t fy = q16_to_f16(v->y);
     uint16_t fu = q16_to_f16(v->u);
     uint16_t fv = q16_to_f16(v->v);
     buf[(*idx)++] = ((uint32_t)fy << 16) | (uint32_t)fx;
-    buf[(*idx)++] = 0x3E00u; // z = 1.0 in Zevio f16
+    buf[(*idx)++] = 0x3E00u; // z = 1.0 in Zevio f16 (nx = 0 when with_normal)
+    if (with_normal) {
+        buf[(*idx)++] = 0u; // ny = 0, nz = 0
+    }
     buf[(*idx)++] = ((uint32_t)fv << 16) | (uint32_t)fu;
 }
 
@@ -194,7 +198,8 @@ static vflash_gpu_result_t submit_3d_tex(
                     (uint32_t)(cr - 1);
     commands[n++] = 0x1E000000u; // Disable depth test/write
 
-    if ((rgb_mod & 0xFFFFFFu) == 0xFFFFFFu) {
+    uint32_t mod_active = ((rgb_mod & 0xFFFFFFu) != 0xFFFFFFu);
+    if (!mod_active) {
         commands[n++] = 0x84000000u;
     } else {
         uint32_t r5 = ((rgb_mod >> 16) & 0xFFu) >> 3;
@@ -253,19 +258,20 @@ static vflash_gpu_result_t submit_3d_tex(
     commands[n++] = 0x20780002u;
     commands[n++] = (0x3E00u << 16) | 0x3E00u;
 
+    uint32_t vtx_flags = mod_active ? 0x00300000u : 0x00100000u;
     if (is_quad) {
-        commands[n++] = 0x44100006u;
-        emit_vtx_q16(commands, &n, &verts[0]);
-        emit_vtx_q16(commands, &n, &verts[1]);
-        emit_vtx_q16(commands, &n, &verts[2]);
-        emit_vtx_q16(commands, &n, &verts[0]);
-        emit_vtx_q16(commands, &n, &verts[2]);
-        emit_vtx_q16(commands, &n, &verts[3]);
+        commands[n++] = 0x44000006u | vtx_flags;
+        emit_vtx_q16(commands, &n, &verts[0], mod_active);
+        emit_vtx_q16(commands, &n, &verts[1], mod_active);
+        emit_vtx_q16(commands, &n, &verts[2], mod_active);
+        emit_vtx_q16(commands, &n, &verts[0], mod_active);
+        emit_vtx_q16(commands, &n, &verts[2], mod_active);
+        emit_vtx_q16(commands, &n, &verts[3], mod_active);
     } else {
-        commands[n++] = 0x44100003u;
-        emit_vtx_q16(commands, &n, &verts[0]);
-        emit_vtx_q16(commands, &n, &verts[1]);
-        emit_vtx_q16(commands, &n, &verts[2]);
+        commands[n++] = 0x44000003u | vtx_flags;
+        emit_vtx_q16(commands, &n, &verts[0], mod_active);
+        emit_vtx_q16(commands, &n, &verts[1], mod_active);
+        emit_vtx_q16(commands, &n, &verts[2], mod_active);
     }
 
     commands[n++] = 0x84000000u;

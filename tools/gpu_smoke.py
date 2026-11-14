@@ -30,6 +30,7 @@ MULTI_VIEW_TESTS = (
     "triangle-depth",
     "triangle-tex",
     "cube",
+    "color-mod",
 )
 ALL_TESTS = ("software", "mmu", "native", *MULTI_VIEW_TESTS)
 
@@ -946,6 +947,59 @@ def run_cube(mmu, view, emulator, bios, base):
     return f"PASS cube {mmu} {view}"
 
 
+def run_color_mod(mmu, view, emulator, bios, base):
+    del view
+    out = base / mmu
+    out.mkdir(parents=True, exist_ok=True)
+    result = out / "color-mod-result.json"
+    result.unlink(missing_ok=True)
+    elf = ROOT / f"build/vflash_gpu_color_mod_test_{mmu}.elf"
+    run_emulator_smoke(emulator, bios, elf, ROOT / f"build/gpu/color_mod_test/{mmu}/homebrew.cue", out)
+    w, h, pixels = read_ppm(out / "frame.ppm")
+    assert (w, h) == (320, 240)
+
+    def px_at(x, y):
+        idx = (y * w + x) * 3
+        return (pixels[idx], pixels[idx + 1], pixels[idx + 2])
+
+    def q5_to_8(c8):
+        c5 = c8 >> 3
+        return (c5 << 3) | (c5 >> 2)
+
+    def blend5(fg8, bg8, alpha):
+        fg5 = fg8 >> 3
+        bg5 = bg8 >> 3
+        f = 16 * alpha * 16
+        denom = 16 * 255 * 16
+        o5 = (fg5 * f + bg5 * (denom - f)) // denom
+        return (o5 << 3) | (o5 >> 2)
+
+    palette = [
+        (255, 255, 255),
+        (0, 0, 0),
+        (128, 128, 128),
+        (255, 0, 0),
+        (0, 255, 0),
+        (0, 0, 255),
+        (48, 144, 240),
+    ]
+    bar_rgb = (220, 220, 40)
+
+    # Sample off the quad diagonal (dx=8, dy=14 inside 24x24 swatch)
+    for i, (r, g, b) in enumerate(palette):
+        sx = 16 + i * 36 + 8
+        exp_opaque = (q5_to_8(r), q5_to_8(g), q5_to_8(b))
+        exp_blend = tuple(blend5(c, bc, 128) for c, bc in zip((r, g, b), bar_rgb))
+        assert px_at(sx, 16 + 14) == exp_opaque, f"{mmu} CopyEx a=255 idx={i}: {px_at(sx, 30)} != {exp_opaque}"
+        assert px_at(sx, 52 + 14) == exp_opaque, f"{mmu} Geom a=255 idx={i}: {px_at(sx, 66)} != {exp_opaque}"
+        assert px_at(sx, 88 + 14) == exp_blend, f"{mmu} CopyEx a=128 idx={i}: {px_at(sx, 102)} != {exp_blend}"
+        assert px_at(sx, 132 + 14) == exp_blend, f"{mmu} Geom a=128 idx={i}: {px_at(sx, 146)} != {exp_blend}"
+        assert px_at(sx, 176 + 14) == exp_opaque, f"{mmu} Copy a=255 idx={i}: {px_at(sx, 190)} != {exp_opaque}"
+
+    result.write_text(json.dumps(dict(passed=True, mmu=mmu), indent=2) + "\n")
+    return f"PASS color-mod {mmu}"
+
+
 DISPATCH = {
     "tiled": run_tiled,
     "frame": run_frame,
@@ -961,6 +1015,7 @@ DISPATCH = {
     "triangle-depth": lambda m, v, e, b, o: run_triangle_or_depth("triangle-depth", m, v, e, b, o),
     "triangle-tex": run_triangle_tex,
     "cube": run_cube,
+    "color-mod": run_color_mod,
 }
 
 
@@ -979,6 +1034,15 @@ def main():
         run_single_test(args.test, args.emulator, args.bios, out)
         return
     mmus = ("off", "on") if args.mmu == "both" else (args.mmu,)
+    if args.test == "color-mod":
+        targets = [f"gpu_color_mod_test_{m}_disc_image" for m in mmus]
+        subprocess.run(["cmake", "--build", str(ROOT / "build"), "--target", *targets],
+                       check=True, stdout=subprocess.DEVNULL)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(mmus), args.parallel)) as pool:
+            futures = [pool.submit(run_color_mod, m, None, args.emulator, args.bios, out) for m in mmus]
+            for f in futures:
+                print(f.result(), flush=True)
+        return
     views = ("a", "b", "linear") if args.view == "all" else (args.view,)
     variants = [(m, v) for m in mmus for v in views]
     kind = args.test.replace("-", "_")

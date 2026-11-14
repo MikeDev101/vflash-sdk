@@ -27,6 +27,8 @@ typedef struct {
 typedef struct {
     SDL_Rect src;
     SDL_FRect dst;
+    SDL_Color color;
+    SDL_BlendMode blend;
 } VFLASH_CopyCmd;
 
 typedef struct {
@@ -35,6 +37,8 @@ typedef struct {
     double angle;
     SDL_FPoint center;
     SDL_RendererFlip flip;
+    SDL_Color color;
+    SDL_BlendMode blend;
 } VFLASH_CopyExCmd;
 
 static void VFLASH_WindowEvent(SDL_Renderer *renderer, const SDL_WindowEvent *event)
@@ -381,6 +385,8 @@ static int VFLASH_QueueCopy(SDL_Renderer *renderer, SDL_RenderCommand *cmd, SDL_
 
     copy->src = *srcrect;
     copy->dst = *dstrect;
+    copy->color = texture->color;
+    copy->blend = texture->blendMode;
     cmd->data.draw.count = 1;
     cmd->data.draw.texture = texture;
     return 0;
@@ -413,6 +419,8 @@ static int VFLASH_QueueCopyEx(SDL_Renderer *renderer, SDL_RenderCommand *cmd,
         copy->center.y = copy->dst.h * 0.5f;
     }
     copy->flip = flip;
+    copy->color = texture->color;
+    copy->blend = texture->blendMode;
     cmd->data.draw.count = 1;
     cmd->data.draw.texture = texture;
     return 0;
@@ -466,7 +474,15 @@ static int VFLASH_QueueGeometry(SDL_Renderer *renderer, SDL_RenderCommand *cmd,
             verts[i].u = 0.0f;
             verts[i].v = 0.0f;
         }
-        verts[i].color = *c_p;
+        SDL_Color vc = *c_p;
+        if (texture) {
+            uint8_t base_a = (texture->blendMode == SDL_BLENDMODE_BLEND) ? texture->color.a : 255u;
+            vc.r = (Uint8)(((uint32_t)texture->color.r * (uint32_t)vc.r) / 255u);
+            vc.g = (Uint8)(((uint32_t)texture->color.g * (uint32_t)vc.g) / 255u);
+            vc.b = (Uint8)(((uint32_t)texture->color.b * (uint32_t)vc.b) / 255u);
+            vc.a = (Uint8)(((uint32_t)base_a * (uint32_t)vc.a) / 255u);
+        }
+        verts[i].color = vc;
     }
     return 0;
 }
@@ -634,14 +650,14 @@ static int VFLASH_RunCommandQueue(SDL_Renderer *renderer, SDL_RenderCommand *cmd
                 VFLASH_TextureData *tdata = (VFLASH_TextureData *)tex->driverdata;
                 if (tdata->uploaded) {
                     if (tdata->is_target) {
-                        tdata->native_tex.type = (tex->blendMode == SDL_BLENDMODE_NONE)
+                        tdata->native_tex.type = (copy->blend == SDL_BLENDMODE_NONE)
                             ? VFLASH_TEXTURE_OPAQUE
                             : VFLASH_TEXTURE_KEYED;
                     }
-                    uint8_t alpha = (tex->blendMode == SDL_BLENDMODE_BLEND) ? tex->color.a : 255u;
-                    uint32_t color_mod = ((uint32_t)tex->color.r << 16) |
-                                         ((uint32_t)tex->color.g << 8) |
-                                         (uint32_t)tex->color.b;
+                    uint8_t alpha = (copy->blend == SDL_BLENDMODE_BLEND) ? copy->color.a : 255u;
+                    uint32_t color_mod = ((uint32_t)copy->color.r << 16) |
+                                         ((uint32_t)copy->color.g << 8) |
+                                         (uint32_t)copy->color.b;
                     int32_t dw = (int32_t)(copy->dst.w + 0.5f);
                     int32_t dh = (int32_t)(copy->dst.h + 0.5f);
                     if (dw == copy->src.w && dh == copy->src.h &&
@@ -678,14 +694,14 @@ static int VFLASH_RunCommandQueue(SDL_Renderer *renderer, SDL_RenderCommand *cmd
                 VFLASH_TextureData *tdata = (VFLASH_TextureData *)tex->driverdata;
                 if (tdata->uploaded) {
                     if (tdata->is_target) {
-                        tdata->native_tex.type = (tex->blendMode == SDL_BLENDMODE_NONE)
+                        tdata->native_tex.type = (copy->blend == SDL_BLENDMODE_NONE)
                             ? VFLASH_TEXTURE_OPAQUE
                             : VFLASH_TEXTURE_KEYED;
                     }
-                    uint8_t alpha = (tex->blendMode == SDL_BLENDMODE_BLEND) ? tex->color.a : 255u;
-                    uint32_t color_mod = ((uint32_t)tex->color.r << 16) |
-                                         ((uint32_t)tex->color.g << 8) |
-                                         (uint32_t)tex->color.b;
+                    uint8_t alpha = (copy->blend == SDL_BLENDMODE_BLEND) ? copy->color.a : 255u;
+                    uint32_t color_mod = ((uint32_t)copy->color.r << 16) |
+                                         ((uint32_t)copy->color.g << 8) |
+                                         (uint32_t)copy->color.b;
                     uint32_t vflip = VFLASH_FLIP_NONE;
                     if (copy->flip & SDL_FLIP_HORIZONTAL) vflip |= VFLASH_FLIP_HORIZONTAL;
                     if (copy->flip & SDL_FLIP_VERTICAL) vflip |= VFLASH_FLIP_VERTICAL;
@@ -721,7 +737,6 @@ static int VFLASH_RunCommandQueue(SDL_Renderer *renderer, SDL_RenderCommand *cmd
                             ? VFLASH_TEXTURE_OPAQUE
                             : VFLASH_TEXTURE_KEYED;
                     }
-                    uint8_t base_a = (tex->blendMode == SDL_BLENDMODE_BLEND) ? tex->color.a : 255u;
                     for (size_t i = 0; i + 2 < count; i += 3) {
                         vflash_gpu_quad_vertex_t tri[3];
                         for (int k = 0; k < 3; ++k) {
@@ -730,12 +745,10 @@ static int VFLASH_RunCommandQueue(SDL_Renderer *renderer, SDL_RenderCommand *cmd
                             tri[k].u = (int32_t)(verts[i + k].u * 65536.0f);
                             tri[k].v = (int32_t)(verts[i + k].v * 65536.0f);
                         }
-                        uint8_t va = verts[i].color.a;
-                        uint8_t alpha = (uint8_t)(((uint32_t)base_a * (uint32_t)va) / 255u);
-                        uint32_t mr = ((uint32_t)tex->color.r * (uint32_t)verts[i].color.r) / 255u;
-                        uint32_t mg = ((uint32_t)tex->color.g * (uint32_t)verts[i].color.g) / 255u;
-                        uint32_t mb = ((uint32_t)tex->color.b * (uint32_t)verts[i].color.b) / 255u;
-                        uint32_t color_mod = (mr << 16) | (mg << 8) | mb;
+                        uint8_t alpha = verts[i].color.a;
+                        uint32_t color_mod = ((uint32_t)verts[i].color.r << 16) |
+                                             ((uint32_t)verts[i].color.g << 8) |
+                                             (uint32_t)verts[i].color.b;
                         vflash_renderer_draw_tri_tex(
                             nr, &tdata->native_tex, tri, alpha, color_mod);
                     }
