@@ -62,7 +62,7 @@ void vflash_main(void)
     int all_ok = (startup_status == 0x600D600Du) ? 1 : 0;
 
     if (vflash_renderer_get_atlas_stats(nr, &st) != VFLASH_GPU_OK ||
-        st.total_texels != 320u * 240u || st.free_texels != st.total_texels ||
+        st.total_texels != 704u * 240u || st.free_texels != st.total_texels ||
         st.free_rect_count != 1u || st.live_count != 0u) {
         all_ok = 0;
     }
@@ -150,15 +150,15 @@ void vflash_main(void)
     }
     if (p1_end_st.fail_meta != 0) all_ok = 0;
 
-    // Phase 2: Adversarial checkerboard fragmentation (5x5 grid of 64x48 = 320x240).
-    SDL_Texture *grid[25];
+    // Phase 2: Adversarial checkerboard fragmentation (11x5 grid of 64x48 = 704x240).
+    SDL_Texture *grid[55];
     memset(grid, 0, sizeof(grid));
-    for (int i = 0; i < 25; ++i) {
+    for (int i = 0; i < 55; ++i) {
         grid[i] = make_tex(ren, 64, 48, 0xFF808080u);
         if (!grid[i]) all_ok = 0;
     }
-    // Free checkerboard slots (12 slots = 36,864 free texels, max hole 64x48).
-    for (int i = 1; i < 25; i += 2) {
+    // Free checkerboard slots (27 slots = 82,944 free texels, max hole 64x48).
+    for (int i = 1; i < 55; i += 2) {
         SDL_DestroyTexture(grid[i]);
         grid[i] = NULL;
     }
@@ -186,7 +186,7 @@ void vflash_main(void)
         SDL_DestroyTexture(fit_hole);
     }
 
-    for (int i = 0; i < 25; ++i) {
+    for (int i = 0; i < 55; ++i) {
         if (grid[i]) SDL_DestroyTexture(grid[i]);
     }
 

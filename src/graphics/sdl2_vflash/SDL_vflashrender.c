@@ -841,7 +841,7 @@ static int VFLASH_CreateRenderer(SDL_Renderer *renderer, SDL_Window *window, Uin
         .surface_a = (void *)s_surface_a,
         .surface_b = (void *)s_surface_b,
         .surface_bytes = sizeof(s_surface_a),
-        .surface_width = 640,
+        .surface_width = 1024,
         .surface_height = 240,
         .playfield_width = 320,
         .playfield_height = 240,
@@ -849,7 +849,7 @@ static int VFLASH_CreateRenderer(SDL_Renderer *renderer, SDL_Window *window, Uin
         .screen_y = 0,
         .atlas_x = 320,
         .atlas_y = 0,
-        .atlas_width = 320,
+        .atlas_width = 704,
         .atlas_height = 240
     };
 
