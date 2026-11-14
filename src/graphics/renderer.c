@@ -114,6 +114,37 @@ vflash_gpu_result_t vflash_renderer_reset_atlas(vflash_renderer_t *r)
     return VFLASH_GPU_OK;
 }
 
+vflash_gpu_result_t vflash_renderer_get_atlas_stats(const vflash_renderer_t *r,
+                                                    vflash_atlas_stats_t *out)
+{
+    if (!r || !r->initialized) return VFLASH_GPU_NOT_INITIALIZED;
+    if (!out) return VFLASH_GPU_INVALID;
+
+    out->total_texels = r->config.atlas_width * r->config.atlas_height;
+    out->free_texels = 0;
+    out->largest_free_texels = 0;
+    out->largest_free_w = 0;
+    out->largest_free_h = 0;
+    out->free_rect_count = r->atlas_free_count;
+    out->live_count = r->atlas_live_count;
+    out->fail_oom = r->atlas_alloc_fail_oom;
+    out->fail_frag = r->atlas_alloc_fail_frag;
+    out->fail_meta = r->atlas_alloc_fail_meta;
+
+    for (uint32_t i = 0; i < r->atlas_free_count; ++i) {
+        uint32_t w = r->atlas_free[i].w;
+        uint32_t h = r->atlas_free[i].h;
+        uint32_t area = w * h;
+        out->free_texels += area;
+        if (area > out->largest_free_texels) {
+            out->largest_free_texels = area;
+            out->largest_free_w = w;
+            out->largest_free_h = h;
+        }
+    }
+    return VFLASH_GPU_OK;
+}
+
 static void free_atlas_slot(vflash_renderer_t *r, uint32_t x, uint32_t y,
                             uint32_t w, uint32_t h)
 {

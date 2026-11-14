@@ -31,6 +31,7 @@ MULTI_VIEW_TESTS = (
     "triangle-tex",
     "cube",
     "color-mod",
+    "atlas-frag",
 )
 ALL_TESTS = ("software", "mmu", "native", *MULTI_VIEW_TESTS)
 
@@ -1007,6 +1008,55 @@ def run_color_mod(mmu, view, emulator, bios, base):
     return f"PASS color-mod {mmu}"
 
 
+def run_atlas_frag(mmu, view, emulator, bios, base):
+    del view
+    out = base / mmu
+    out.mkdir(parents=True, exist_ok=True)
+    result = out / "atlas-frag-result.json"
+    result.unlink(missing_ok=True)
+    elf = ROOT / f"build/vflash_gpu_atlas_frag_test_{mmu}.elf"
+    run_emulator_smoke(emulator, bios, elf, ROOT / f"build/gpu/atlas_frag_test/{mmu}/homebrew.cue", out)
+    w, h, pixels = read_ppm(out / "frame.ppm")
+    assert (w, h) == (320, 240)
+
+    def px_at(x, y):
+        idx = (y * w + x) * 3
+        return (pixels[idx], pixels[idx + 1], pixels[idx + 2])
+
+    def q5_to_8(c8):
+        c5 = c8 >> 3
+        return (c5 << 3) | (c5 >> 2)
+
+    expected_colors = [
+        (255, 0, 0),
+        (0, 255, 0),
+        (0, 0, 255),
+        (255, 255, 0),
+        (0, 255, 255),
+        (255, 0, 255),
+        (255, 255, 255),
+    ]
+    for i, (r, g, b) in enumerate(expected_colors):
+        sx = 16 + i * 36 + 8
+        exp = (q5_to_8(r), q5_to_8(g), q5_to_8(b))
+        assert px_at(sx, 24 + 14) == exp, f"{mmu} reuse swatch {i}: {px_at(sx, 38)} != {exp}"
+
+    exp_status = (0, q5_to_8(224), 0)
+    assert px_at(56, 92) == exp_status, f"{mmu} atlas-frag status bar: {px_at(56, 92)} != {exp_status}"
+
+    log_line = ""
+    for log_name in ("stdout.log", "serial.log", "flashem.log"):
+        lp = out / log_name
+        if lp.exists():
+            for line in lp.read_text(errors="replace").splitlines():
+                if "ATLAS_FRAG" in line:
+                    log_line = line.strip()
+                    break
+
+    result.write_text(json.dumps(dict(passed=True, mmu=mmu, metrics=log_line), indent=2) + "\n")
+    return f"PASS atlas-frag {mmu}" + (f" ({log_line})" if log_line else "")
+
+
 DISPATCH = {
     "tiled": run_tiled,
     "frame": run_frame,
@@ -1023,6 +1073,7 @@ DISPATCH = {
     "triangle-tex": run_triangle_tex,
     "cube": run_cube,
     "color-mod": run_color_mod,
+    "atlas-frag": run_atlas_frag,
 }
 
 
@@ -1041,12 +1092,14 @@ def main():
         run_single_test(args.test, args.emulator, args.bios, out)
         return
     mmus = ("off", "on") if args.mmu == "both" else (args.mmu,)
-    if args.test == "color-mod":
-        targets = [f"gpu_color_mod_test_{m}_disc_image" for m in mmus]
+    if args.test in ("color-mod", "atlas-frag"):
+        kind = args.test.replace("-", "_")
+        targets = [f"gpu_{kind}_test_{m}_disc_image" for m in mmus]
         subprocess.run(["cmake", "--build", str(ROOT / "build"), "--target", *targets],
                        check=True, stdout=subprocess.DEVNULL)
+        fn = DISPATCH[args.test]
         with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(mmus), args.parallel)) as pool:
-            futures = [pool.submit(run_color_mod, m, None, args.emulator, args.bios, out) for m in mmus]
+            futures = [pool.submit(fn, m, None, args.emulator, args.bios, out) for m in mmus]
             for f in futures:
                 print(f.result(), flush=True)
         return

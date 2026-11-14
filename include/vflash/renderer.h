@@ -66,6 +66,23 @@ typedef struct
 } vflash_atlas_rect_t;
 
 //
+// Offscreen texture atlas allocator statistics.
+//
+typedef struct
+{
+    uint32_t total_texels;
+    uint32_t free_texels;
+    uint32_t largest_free_texels;
+    uint32_t largest_free_w;
+    uint32_t largest_free_h;
+    uint32_t free_rect_count;
+    uint32_t live_count;
+    uint32_t fail_oom;
+    uint32_t fail_frag;
+    uint32_t fail_meta;
+} vflash_atlas_stats_t;
+
+//
 // Deferred GPU command recorded when drawing into an offscreen render target
 // while the opposite double-buffer surface is actively scanned out.
 //
@@ -150,6 +167,17 @@ vflash_gpu_result_t vflash_renderer_shutdown(vflash_renderer_t *r);
 // Returns VFLASH_GPU_OK on success, or an error code.
 //
 vflash_gpu_result_t vflash_renderer_reset_atlas(vflash_renderer_t *r);
+
+//
+// Query current offscreen texture atlas usage and fragmentation statistics.
+//
+// r:   Initialized renderer instance.
+// out: Output struct populated with atlas metrics.
+//
+// Returns VFLASH_GPU_OK on success, or an error code.
+//
+vflash_gpu_result_t vflash_renderer_get_atlas_stats(const vflash_renderer_t *r,
+                                                    vflash_atlas_stats_t *out);
 
 //
 // Invalidate a texture handle by clearing its metadata.

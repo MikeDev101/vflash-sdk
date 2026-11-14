@@ -324,5 +324,23 @@ if(VFLASH_ENABLE_SDL2 AND TARGET SDL2)
         endif()
         target_link_libraries(${cmod_target} PRIVATE -Wl,--start-group SDL2 gcc -Wl,--end-group)
         vflash_add_disc(gpu_color_mod_test_${mmu}_disc_image ${cmod_target} gpu/color_mod_test/${mmu})
+
+        set(frag_target vflash_gpu_atlas_frag_test_${mmu})
+        vflash_add_program(${frag_target} firmware-disc.ld
+            atlas_frag_test.c
+            ${CMAKE_SOURCE_DIR}/src/platform/clock.c
+            ${sdl2_gpu_sources}
+        )
+        target_include_directories(${frag_target} PRIVATE
+            "${CMAKE_SOURCE_DIR}/include/sdl2_vflash"
+            "${CMAKE_SOURCE_DIR}/external/SDL2/include"
+        )
+        target_compile_definitions(${frag_target} PRIVATE DYNAPI_NEEDS_DLOPEN=1)
+        if(mmu STREQUAL "on")
+            target_sources(${frag_target} PRIVATE ${CMAKE_SOURCE_DIR}/src/platform/mmu.c ${CMAKE_SOURCE_DIR}/src/platform/mmu_arm926.S)
+            target_compile_definitions(${frag_target} PRIVATE GPU_SDL2_MMU=1)
+        endif()
+        target_link_libraries(${frag_target} PRIVATE -Wl,--start-group SDL2 gcc -Wl,--end-group)
+        vflash_add_disc(gpu_atlas_frag_test_${mmu}_disc_image ${frag_target} gpu/atlas_frag_test/${mmu})
     endforeach()
 endif()
