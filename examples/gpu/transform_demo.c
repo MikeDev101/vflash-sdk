@@ -122,7 +122,18 @@ static void render_scene(SDL_Renderer *r, SDL_Texture *tex,
         transform_errors++;
     }
 
-    // 8. Translucent sprite + alphaMod + colorMod
+    // 8. Translucent sprite + alphaMod + colorMod over checkerboard background
+    for (int cy = 0; cy < 6; ++cy) {
+        for (int cx = 0; cx < 6; ++cx) {
+            if ((cx + cy) & 1) {
+                SDL_SetRenderDrawColor(r, 200, 180, 60, 255);
+            } else {
+                SDL_SetRenderDrawColor(r, 40, 120, 180, 255);
+            }
+            SDL_Rect cell = { 186 + cx * 8, 116 + cy * 8, 8, 8 };
+            SDL_RenderFillRect(r, &cell);
+        }
+    }
     SDL_SetTextureAlphaMod(alpha_tex, 160);
     SDL_SetTextureColorMod(alpha_tex, 255, 192, 192);
     SDL_Rect tr_dst = { 190, 120, 40, 40 };
@@ -221,6 +232,24 @@ void vflash_main(void)
         ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 80, 80);
     VFLASH_ASSERT(target_tex != NULL);
     SDL_SetTextureBlendMode(target_tex, SDL_BLENDMODE_BLEND);
+
+    // Atlas exhaustion must fail gracefully without panicking
+    if (SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888,
+                          SDL_TEXTUREACCESS_TARGET, 320, 200) != NULL) {
+        transform_errors++;
+    }
+    SDL_Texture *overflow_tex = SDL_CreateTexture(
+        ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, 320, 200);
+    VFLASH_ASSERT(overflow_tex != NULL);
+    if (SDL_UpdateTexture(overflow_tex, NULL, sprite_pixels, 0) == 0) {
+        transform_errors++;
+    }
+    SDL_Rect ov_dst = { 0, 0, 16, 16 };
+    if (SDL_RenderCopyEx(ren, overflow_tex, NULL, &ov_dst, 0.0, NULL,
+                         SDL_FLIP_NONE) != 0) {
+        transform_errors++;
+    }
+    SDL_DestroyTexture(overflow_tex);
 
     for (int f = 0; f < 16; ++f) {
         render_scene(ren, tex, alpha_tex, target_tex, f);

@@ -230,6 +230,14 @@ conversion (`q16_to_f16`) to Zevio's 1-6-9 `f16` format (`0x3E00 = 1.0`).
     `vflash_renderer_draw_tri_tex()`.
   - `vflash_renderer_update_texture()` updates an existing atlas slot
     in-place without leaking atlas capacity.
+  - Atlas capacity: the SDL2 backend configures a `320x240` offscreen
+    atlas (`76,800` texels) using a bump allocator (`alloc_atlas_slot()`)
+    with even-width alignment; `vflash_renderer_destroy_texture()` and
+    `SDL_DestroyTexture()` do not reclaim atlas slots. Exhausting the
+    atlas returns `VFLASH_GPU_OUT_OF_MEMORY` (or `-1` from
+    `SDL_UpdateTexture()`, `NULL` from target `SDL_CreateTexture()`)
+    gracefully without panicking, and unuploaded textures are skipped on
+    draw.
   - Note: `VFLASH_TEX_OPAQUE` (`0x00` alpha-keyed `BGR555`) treats pixel
     `0x0000` as transparent in the Zevio 3D texture path.
 - **SDL2 (`SDL_vflashrender.c`)**:
