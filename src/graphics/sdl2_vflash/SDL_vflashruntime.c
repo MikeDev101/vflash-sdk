@@ -217,3 +217,16 @@ unsigned int __sync_lock_test_and_set_4(volatile void *ptr, unsigned int val)
     *(volatile unsigned int *)ptr = val;
     return old;
 }
+
+void __sync_synchronize(void)
+{
+#ifdef __arm__
+    unsigned int zero = 0;
+    __asm__ volatile("mcr p15, 0, %0, c7, c10, 4"
+                     :
+                     : "r"(zero)
+                     : "memory");
+#else
+    __asm__ volatile("" ::: "memory");
+#endif
+}

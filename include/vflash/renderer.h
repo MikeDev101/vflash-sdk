@@ -100,10 +100,10 @@ typedef struct
     uint32_t frame_count;
     uint32_t atlas_free_count;
     vflash_atlas_rect_t atlas_free[VFLASH_MAX_ATLAS_FREE_RECTS];
+    uint32_t atlas_live_count;
     uint32_t atlas_alloc_fail_oom;
     uint32_t atlas_alloc_fail_frag;
     uint32_t atlas_alloc_fail_meta;
-    uint32_t atlas_free_overflow;
     int32_t clip_x;
     int32_t clip_y;
     int32_t clip_w;
