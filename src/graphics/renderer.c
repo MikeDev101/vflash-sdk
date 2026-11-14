@@ -1,4 +1,5 @@
 #include "vflash/renderer.h"
+#include "vflash/clock.h"
 #include "vflash/draw.h"
 #include "vflash/mmu.h"
 #include <string.h>
@@ -62,6 +63,15 @@ vflash_gpu_result_t vflash_renderer_init(vflash_renderer_t *r, const vflash_rend
     r->target_op_count = 0;
     r->target_op_overflow = 0;
     r->atlas_sync_pending = 0;
+    r->dirty_tiles_all = 0;
+    memset(r->dirty_tiles, 0, sizeof(r->dirty_tiles));
+    r->perf_present_calls = 0;
+    r->perf_wait_idle_ticks = 0;
+    r->perf_present_view_ticks = 0;
+    r->perf_sync_count = 0;
+    r->perf_sync_tiles = 0;
+    r->perf_sync_bytes = 0;
+    r->perf_sync_ticks = 0;
     r->initialized = 1;
     return VFLASH_GPU_OK;
 }
@@ -106,6 +116,8 @@ vflash_gpu_result_t vflash_renderer_reset_atlas(vflash_renderer_t *r)
     r->target_op_count = 0;
     r->target_op_overflow = 0;
     r->atlas_sync_pending = 0;
+    r->dirty_tiles_all = 0;
+    memset(r->dirty_tiles, 0, sizeof(r->dirty_tiles));
     r->clip_x = 0;
     r->clip_y = 0;
     r->clip_w = (int32_t)r->config.playfield_width;
@@ -375,27 +387,71 @@ static vflash_gpu_result_t exec_target_op(vflash_renderer_t *r,
                                      op->dx, op->dy);
 }
 
-static void sync_atlas_tiles(const vflash_renderer_t *r,
+static void mark_atlas_dirty_rect(vflash_renderer_t *r, int32_t x, int32_t y, int32_t w, int32_t h)
+{
+    if (w <= 0 || h <= 0) return;
+    if (!r->config.atlas_width || !r->config.atlas_height) return;
+    int32_t ax0 = (int32_t)r->config.atlas_x;
+    int32_t ay0 = (int32_t)r->config.atlas_y;
+    int32_t ax1 = ax0 + (int32_t)r->config.atlas_width;
+    int32_t ay1 = ay0 + (int32_t)r->config.atlas_height;
+    int32_t x0 = x < ax0 ? ax0 : x;
+    int32_t y0 = y < ay0 ? ay0 : y;
+    int32_t x1 = (x + w) > ax1 ? ax1 : (x + w);
+    int32_t y1 = (y + h) > ay1 ? ay1 : (y + h);
+    if (x0 >= x1 || y0 >= y1) return;
+
+    uint32_t tx0 = (uint32_t)x0 >> 5;
+    uint32_t tx1 = (uint32_t)(x1 - 1) >> 5;
+    uint32_t ty0 = (uint32_t)y0 >> 3;
+    uint32_t ty1 = (uint32_t)(y1 - 1) >> 3;
+    if (tx1 >= 32u || ty1 >= 32u) {
+        r->dirty_tiles_all = 1;
+        return;
+    }
+
+    uint32_t hi = (tx1 == 31u) ? 0xFFFFFFFFu : ((1u << (tx1 + 1u)) - 1u);
+    uint32_t lo = ~((1u << tx0) - 1u);
+    uint32_t mask = hi & lo;
+    for (uint32_t ty = ty0; ty <= ty1; ++ty) {
+        r->dirty_tiles[ty] |= mask;
+    }
+}
+
+static void sync_atlas_tiles(vflash_renderer_t *r,
                              vflash_gpu_surface_t *src,
                              vflash_gpu_surface_t *dst)
 {
     if (!r->config.atlas_width || !r->config.atlas_height) return;
+    uint16_t t0 = vflash_clock_ticks();
     uint32_t tx0 = r->config.atlas_x >> 5;
     uint32_t tx1 = (r->config.atlas_x + r->config.atlas_width - 1u) >> 5;
     uint32_t ty0 = r->config.atlas_y >> 3;
     uint32_t ty1 = (r->config.atlas_y + r->config.atlas_height - 1u) >> 3;
     const uint8_t *sbase = (const uint8_t *)src->fb.pixels;
     uint8_t *dbase = (uint8_t *)dst->fb.pixels;
+    uint32_t tiles = 0;
 
     for (uint32_t ty = ty0; ty <= ty1; ++ty) {
+        uint32_t row_mask = (!r->dirty_tiles_all && ty < 32u) ? r->dirty_tiles[ty] : 0xFFFFFFFFu;
+        if (!row_mask) continue;
         uint32_t row_off = ty * 16384u;
         for (uint32_t tx = tx0; tx <= tx1; ++tx) {
+            if (!r->dirty_tiles_all && tx < 32u && !(row_mask & (1u << tx))) {
+                continue;
+            }
             uint32_t off = row_off + tx * 512u;
             vflash_dcache_invalidate_range((void *)(uintptr_t)(sbase + off), 512u);
             memcpy(dbase + off, sbase + off, 512u);
             vflash_dcache_clean_range(dbase + off, 512u);
+            tiles++;
         }
     }
+    uint16_t t1 = vflash_clock_ticks();
+    r->perf_sync_count++;
+    r->perf_sync_tiles += tiles;
+    r->perf_sync_bytes += tiles * 512u;
+    r->perf_sync_ticks += (uint16_t)(t1 - t0);
 }
 
 static vflash_gpu_result_t submit_target_op(vflash_renderer_t *r,
@@ -417,8 +473,10 @@ static vflash_gpu_result_t submit_target_op(vflash_renderer_t *r,
     }
 
     if (r->target_op_overflow) {
+        mark_atlas_dirty_rect(r, op->cx, op->cy, op->cw, op->ch);
         return VFLASH_GPU_OK;
     }
+    mark_atlas_dirty_rect(r, op->cx, op->cy, op->cw, op->ch);
     if (r->target_op_count >= VFLASH_MAX_TARGET_OPS) {
         r->target_op_overflow = 1;
         return VFLASH_GPU_OK;
@@ -478,6 +536,7 @@ static vflash_gpu_result_t upload_to_surfaces(
     }
 
     r->atlas_sync_pending = 1;
+    mark_atlas_dirty_rect(r, ax, ay, (int32_t)width, (int32_t)height);
     return VFLASH_GPU_OK;
 }
 
@@ -957,6 +1016,8 @@ vflash_gpu_result_t vflash_renderer_draw_sub_transformed(
         verts, xform->alpha, xform->color_mod);
     if (!res && r->has_target) {
         r->target_op_overflow = 1;
+        mark_atlas_dirty_rect(r, (int32_t)r->target.atlas_x, (int32_t)r->target.atlas_y,
+                              (int32_t)r->target.width, (int32_t)r->target.height);
     }
     return res;
 }
@@ -1005,6 +1066,8 @@ vflash_gpu_result_t vflash_renderer_draw_tri_tex(
         log2_tw, log2_th, tri, alpha, color_mod);
     if (!res && r->has_target) {
         r->target_op_overflow = 1;
+        mark_atlas_dirty_rect(r, (int32_t)r->target.atlas_x, (int32_t)r->target.atlas_y,
+                              (int32_t)r->target.width, (int32_t)r->target.height);
     }
     return res;
 }
@@ -1012,15 +1075,26 @@ vflash_gpu_result_t vflash_renderer_draw_tri_tex(
 vflash_gpu_result_t vflash_renderer_present(vflash_renderer_t *r)
 {
     if (!r || !r->initialized) return VFLASH_GPU_NOT_INITIALIZED;
+    r->perf_present_calls++;
+    uint16_t t0 = vflash_clock_ticks();
     vflash_gpu_result_t res = vflash_gpu_wait_idle(&r->gpu);
+    uint16_t t1 = vflash_clock_ticks();
+    r->perf_wait_idle_ticks += (uint16_t)(t1 - t0);
     if (res) return res;
+
+    t0 = vflash_clock_ticks();
     res = vflash_gpu_present_view(&r->gpu, r->current, r->config.playfield_width, r->config.playfield_height,
                                   r->config.screen_x, r->config.screen_y);
+    t1 = vflash_clock_ticks();
+    r->perf_present_view_ticks += (uint16_t)(t1 - t0);
     if (res) return res;
 
     vflash_gpu_surface_t *other = other_surface(r);
     if (r->target_op_overflow || r->atlas_sync_pending) {
+        t0 = vflash_clock_ticks();
         vflash_gpu_wait_idle(&r->gpu);
+        t1 = vflash_clock_ticks();
+        r->perf_wait_idle_ticks += (uint16_t)(t1 - t0);
         sync_atlas_tiles(r, r->current, other);
     } else {
         for (uint32_t i = 0; i < r->target_op_count; ++i) {
@@ -1029,6 +1103,8 @@ vflash_gpu_result_t vflash_renderer_present(vflash_renderer_t *r)
                 r->target_op_count = 0;
                 r->target_op_overflow = 0;
                 r->atlas_sync_pending = 0;
+                r->dirty_tiles_all = 0;
+                memset(r->dirty_tiles, 0, sizeof(r->dirty_tiles));
                 return res;
             }
         }
@@ -1036,11 +1112,50 @@ vflash_gpu_result_t vflash_renderer_present(vflash_renderer_t *r)
     r->target_op_count = 0;
     r->target_op_overflow = 0;
     r->atlas_sync_pending = 0;
+    r->dirty_tiles_all = 0;
+    memset(r->dirty_tiles, 0, sizeof(r->dirty_tiles));
     r->frame_count++;
     r->current = other;
 
     int32_t ox, oy, bw, bh;
     active_origin_bounds(r, &ox, &oy, &bw, &bh);
     vflash_gpu_clip(r->current, ox + r->clip_x, oy + r->clip_y, r->clip_w, r->clip_h);
+    return VFLASH_GPU_OK;
+}
+
+vflash_gpu_result_t vflash_renderer_get_perf_stats(vflash_renderer_t *r,
+                                                   vflash_renderer_perf_stats_t *out)
+{
+    if (!r || !out) return VFLASH_GPU_INVALID;
+    if (!r->initialized) return VFLASH_GPU_NOT_INITIALIZED;
+    memset(out, 0, sizeof(*out));
+    out->present_calls = r->perf_present_calls;
+    out->wait_idle_ticks = r->perf_wait_idle_ticks;
+    out->present_view_ticks = r->perf_present_view_ticks;
+    out->sync_count = r->perf_sync_count;
+    out->sync_tiles = r->perf_sync_tiles;
+    out->sync_bytes = r->perf_sync_bytes;
+    out->sync_ticks = r->perf_sync_ticks;
+
+    vflash_gpu_stats_t gs;
+    if (vflash_gpu_stats(&r->gpu, &gs) == VFLASH_GPU_OK) {
+        out->gpu_lists = gs.lists;
+        out->gpu_submit_ticks = gs.submission_ticks;
+        out->gpu_wait_ticks = gs.completion_ticks;
+    }
+    return VFLASH_GPU_OK;
+}
+
+vflash_gpu_result_t vflash_renderer_reset_perf_stats(vflash_renderer_t *r)
+{
+    if (!r) return VFLASH_GPU_INVALID;
+    if (!r->initialized) return VFLASH_GPU_NOT_INITIALIZED;
+    r->perf_present_calls = 0;
+    r->perf_wait_idle_ticks = 0;
+    r->perf_present_view_ticks = 0;
+    r->perf_sync_count = 0;
+    r->perf_sync_tiles = 0;
+    r->perf_sync_bytes = 0;
+    r->perf_sync_ticks = 0;
     return VFLASH_GPU_OK;
 }

@@ -32,6 +32,7 @@ MULTI_VIEW_TESTS = (
     "cube",
     "color-mod",
     "atlas-frag",
+    "dirty-sync",
 )
 ALL_TESTS = ("software", "mmu", "native", *MULTI_VIEW_TESTS)
 
@@ -1072,6 +1073,31 @@ def run_atlas_frag(mmu, view, emulator, bios, base):
     return f"PASS atlas-frag {mmu}" + (f" ({log_line})" if log_line else "")
 
 
+def run_dirty_sync(mmu, view, emulator, bios, base):
+    assert view is None
+    out = base / f"dirty-sync-{mmu}"
+    out.mkdir(parents=True, exist_ok=True)
+    cue = ROOT / f"build/gpu/dirty_sync_test/{mmu}/homebrew.cue"
+    elf = ROOT / f"build/vflash_gpu_dirty_sync_test_{mmu}.elf"
+    run_emulator_smoke(emulator, bios, elf, cue, out)
+
+    w, h, pixels = read_ppm(out / "frame.ppm")
+    assert (w, h) == (320, 240)
+    def px_at(x, y):
+        idx = (y * w + x) * 3
+        return (pixels[idx], pixels[idx + 1], pixels[idx + 2])
+
+    def q5_to_8(c8):
+        c5 = c8 >> 3
+        return (c5 << 3) | (c5 >> 2)
+
+    assert px_at(32, 32) == (q5_to_8(255), q5_to_8(255), 0), f"{mmu} dirty-sync yellow: {px_at(32, 32)}"
+    assert px_at(80, 32) == (0, q5_to_8(255), 0), f"{mmu} dirty-sync green: {px_at(80, 32)}"
+    assert px_at(144, 48) == (q5_to_8(255), 0, q5_to_8(255)), f"{mmu} dirty-sync magenta: {px_at(144, 48)}"
+    assert px_at(96, 108) == (0, q5_to_8(255), 0), f"{mmu} dirty-sync status bar: {px_at(96, 108)}"
+    return f"PASS dirty-sync {mmu}"
+
+
 DISPATCH = {
     "tiled": run_tiled,
     "frame": run_frame,
@@ -1089,6 +1115,7 @@ DISPATCH = {
     "cube": run_cube,
     "color-mod": run_color_mod,
     "atlas-frag": run_atlas_frag,
+    "dirty-sync": run_dirty_sync,
 }
 
 
@@ -1107,7 +1134,7 @@ def main():
         run_single_test(args.test, args.emulator, args.bios, out)
         return
     mmus = ("off", "on") if args.mmu == "both" else (args.mmu,)
-    if args.test in ("color-mod", "atlas-frag"):
+    if args.test in ("color-mod", "atlas-frag", "dirty-sync"):
         kind = args.test.replace("-", "_")
         targets = [f"gpu_{kind}_test_{m}_disc_image" for m in mmus]
         subprocess.run(["cmake", "--build", str(ROOT / "build"), "--target", *targets],

@@ -136,8 +136,34 @@ typedef struct
     uint32_t target_op_count;
     uint8_t target_op_overflow;
     uint8_t atlas_sync_pending;
+    uint8_t dirty_tiles_all;
+    uint32_t dirty_tiles[32];
+    uint32_t perf_present_calls;
+    uint32_t perf_wait_idle_ticks;
+    uint32_t perf_present_view_ticks;
+    uint32_t perf_sync_count;
+    uint32_t perf_sync_tiles;
+    uint32_t perf_sync_bytes;
+    uint32_t perf_sync_ticks;
     vflash_target_op_t target_ops[VFLASH_MAX_TARGET_OPS];
 } vflash_renderer_t;
+
+//
+// Cumulative renderer present and GPU profiling counters (10 kHz ticks).
+//
+typedef struct
+{
+    uint32_t present_calls;
+    uint32_t wait_idle_ticks;
+    uint32_t present_view_ticks;
+    uint32_t sync_count;
+    uint32_t sync_tiles;
+    uint32_t sync_bytes;
+    uint32_t sync_ticks;
+    uint32_t gpu_lists;
+    uint32_t gpu_submit_ticks;
+    uint32_t gpu_wait_ticks;
+} vflash_renderer_perf_stats_t;
 
 //
 // Initialize the Zevio 2D renderer with double-buffered tiled surfaces.
@@ -446,6 +472,26 @@ vflash_gpu_result_t vflash_renderer_set_target(vflash_renderer_t *r,
 // Returns VFLASH_GPU_OK on success, or an error code.
 //
 vflash_gpu_result_t vflash_renderer_present(vflash_renderer_t *r);
+
+//
+// Retrieve cumulative renderer present, tile-sync, and GPU timing statistics.
+//
+// r:   Initialized renderer instance.
+// out: Output performance statistics structure.
+//
+// Returns VFLASH_GPU_OK on success, or an error code.
+//
+vflash_gpu_result_t vflash_renderer_get_perf_stats(vflash_renderer_t *r,
+                                                   vflash_renderer_perf_stats_t *out);
+
+//
+// Reset cumulative renderer present and tile-sync counters to zero.
+//
+// r: Initialized renderer instance.
+//
+// Returns VFLASH_GPU_OK on success, or an error code.
+//
+vflash_gpu_result_t vflash_renderer_reset_perf_stats(vflash_renderer_t *r);
 
 #ifdef __cplusplus
 }
