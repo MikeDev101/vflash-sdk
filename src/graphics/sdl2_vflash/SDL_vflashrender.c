@@ -164,6 +164,11 @@ static int VFLASH_UpdateTexture(SDL_Renderer *renderer, SDL_Texture *texture,
                     uint16_t b4 = (uint16_t)((p >> 20) & 0xFu);
                     uint16_t g4 = (uint16_t)((p >> 12) & 0xFu);
                     uint16_t r4 = (uint16_t)((p >> 4) & 0xFu);
+                    if (a4 >= 8u && r4 == 0u && g4 == 0u && b4 == 0u) {
+                        r4 = 1u;
+                        g4 = 1u;
+                        b4 = 1u;
+                    }
                     dst[y * texture->w + x] = (a4 << 12) | (b4 << 8) | (g4 << 4) | r4;
                 }
             }
