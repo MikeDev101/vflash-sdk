@@ -412,6 +412,42 @@ vflash_gpu_result_t vflash_renderer_destroy_texture(vflash_renderer_t *r, vflash
     return VFLASH_GPU_OK;
 }
 
+static vflash_gpu_result_t upload_to_surfaces(
+    vflash_renderer_t *r, const vflash_gpu_surface_t *src_surf,
+    uint32_t width, uint32_t height, int32_t ax, int32_t ay)
+{
+    int32_t ox, oy, bw, bh;
+    active_origin_bounds(r, &ox, &oy, &bw, &bh);
+    (void)bw;
+    (void)bh;
+
+    vflash_gpu_clip(r->current, 0, 0,
+                    (int32_t)r->config.surface_width,
+                    (int32_t)r->config.surface_height);
+    vflash_gpu_result_t res = vflash_gpu_upload(
+        &r->gpu, r->current, src_surf, 0, 0,
+        (int32_t)width, (int32_t)height, ax, ay);
+    vflash_gpu_clip(r->current, ox + r->clip_x, oy + r->clip_y,
+                    r->clip_w, r->clip_h);
+    if (res) return res;
+
+    vflash_gpu_surface_t *other = other_surface(r);
+    if (can_touch_surface(other)) {
+        vflash_gpu_clip(other, 0, 0,
+                        (int32_t)r->config.surface_width,
+                        (int32_t)r->config.surface_height);
+        res = vflash_gpu_upload(
+            &r->gpu, other, src_surf, 0, 0,
+            (int32_t)width, (int32_t)height, ax, ay);
+        vflash_gpu_clip(other, ox + r->clip_x, oy + r->clip_y,
+                        r->clip_w, r->clip_h);
+        return res;
+    }
+
+    r->target_op_overflow = 1;
+    return VFLASH_GPU_OK;
+}
+
 vflash_gpu_result_t vflash_renderer_upload_texture(vflash_renderer_t *r, vflash_texture_t *tex,
                                                    const void *pixels, uint32_t width, uint32_t height,
                                                    vflash_texture_type_t type)
@@ -452,20 +488,7 @@ vflash_gpu_result_t vflash_renderer_upload_texture(vflash_renderer_t *r, vflash_
         return res;
     }
 
-    // Temporary full clip required by vflash_gpu_upload
-    vflash_gpu_clip(&r->surf_a, 0, 0, (int32_t)r->config.surface_width, (int32_t)r->config.surface_height);
-    vflash_gpu_clip(&r->surf_b, 0, 0, (int32_t)r->config.surface_width, (int32_t)r->config.surface_height);
-
-    res = vflash_gpu_upload(&r->gpu, &r->surf_a, &src_surf, 0, 0, (int32_t)width, (int32_t)height, (int32_t)ax, (int32_t)ay);
-    if (!res) {
-        res = vflash_gpu_upload(&r->gpu, &r->surf_b, &src_surf, 0, 0, (int32_t)width, (int32_t)height, (int32_t)ax, (int32_t)ay);
-    }
-
-    // Restore active clip settings on both surfaces
-    int32_t ox, oy, bw, bh;
-    active_origin_bounds(r, &ox, &oy, &bw, &bh);
-    vflash_gpu_clip(&r->surf_a, ox + r->clip_x, oy + r->clip_y, r->clip_w, r->clip_h);
-    vflash_gpu_clip(&r->surf_b, ox + r->clip_x, oy + r->clip_y, r->clip_w, r->clip_h);
+    res = upload_to_surfaces(r, &src_surf, width, height, (int32_t)ax, (int32_t)ay);
     if (res) {
         free_atlas_slot(r, ax, ay, (width + 3u) & ~3u, height);
         return res;
@@ -503,26 +526,8 @@ vflash_gpu_result_t vflash_renderer_update_texture(
         &src_surf, &src_fb, (uint32_t)(uintptr_t)pixels, 1);
     if (res) return res;
 
-    vflash_gpu_clip(&r->surf_a, 0, 0, (int32_t)r->config.surface_width,
-                    (int32_t)r->config.surface_height);
-    vflash_gpu_clip(&r->surf_b, 0, 0, (int32_t)r->config.surface_width,
-                    (int32_t)r->config.surface_height);
-
-    res = vflash_gpu_upload(&r->gpu, &r->surf_a, &src_surf, 0, 0,
-                            (int32_t)width, (int32_t)height,
-                            (int32_t)tex->atlas_x, (int32_t)tex->atlas_y);
-    if (!res) {
-        res = vflash_gpu_upload(&r->gpu, &r->surf_b, &src_surf, 0, 0,
-                                (int32_t)width, (int32_t)height,
-                                (int32_t)tex->atlas_x, (int32_t)tex->atlas_y);
-    }
-
-    int32_t ox, oy, bw, bh;
-    active_origin_bounds(r, &ox, &oy, &bw, &bh);
-    vflash_gpu_clip(&r->surf_a, ox + r->clip_x, oy + r->clip_y,
-                    r->clip_w, r->clip_h);
-    vflash_gpu_clip(&r->surf_b, ox + r->clip_x, oy + r->clip_y,
-                    r->clip_w, r->clip_h);
+    res = upload_to_surfaces(r, &src_surf, width, height,
+                             (int32_t)tex->atlas_x, (int32_t)tex->atlas_y);
     if (res) return res;
 
     tex->type = type;

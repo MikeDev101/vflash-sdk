@@ -86,6 +86,16 @@ void vflash_main(void)
     SDL_SetTextureBlendMode(white_tex, SDL_BLENDMODE_BLEND);
     SDL_UpdateTexture(white_tex, NULL, white_pixels, 16 * 4);
 
+    static uint32_t live_pixels[16 * 16];
+    for (int i = 0; i < 16 * 16; ++i) {
+        live_pixels[i] = 0xFF0000FFu; // Initial: red (RGBA32)
+    }
+    SDL_Texture *live_tex = SDL_CreateTexture(
+        ren, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, 16, 16);
+    if (!live_tex) return;
+    SDL_SetTextureBlendMode(live_tex, SDL_BLENDMODE_BLEND);
+    SDL_UpdateTexture(live_tex, NULL, live_pixels, 16 * 4);
+
     static const uint8_t palette[7][3] = {
         { 255, 255, 255 }, // White
         {   0,   0,   0 }, // Black
@@ -96,7 +106,16 @@ void vflash_main(void)
         {  48, 144, 240 }, // Arbitrary RGB (0x3090F0)
     };
 
-    for (;;) {
+    int live_updated = 0;
+    for (uint32_t frame = 0; ; ++frame) {
+        if (!live_updated && frame >= 10) {
+            for (int i = 0; i < 16 * 16; ++i) {
+                live_pixels[i] = 0xFFFFFFFFu; // Updated live during tiled scanout: white
+            }
+            if (SDL_UpdateTexture(live_tex, NULL, live_pixels, 16 * 4) == 0) {
+                live_updated = 1;
+            }
+        }
         SDL_SetRenderDrawColor(ren, 64, 64, 64, 255);
         SDL_RenderClear(ren);
 
@@ -124,6 +143,9 @@ void vflash_main(void)
             // Row 4: SDL_RenderCopy opaque
             draw_swatch_copy_plain(ren, white_tex, x, 176, r, g, b, 255);
         }
+
+        // Row 5: Live-updated texture after frame 10 with RGB(48, 144, 240) mod
+        draw_swatch_copy_plain(ren, live_tex, 16, 208, 48, 144, 240, 255);
 
         SDL_RenderPresent(ren);
     }

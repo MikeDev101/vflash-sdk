@@ -123,11 +123,6 @@ static int VFLASH_UpdateTexture(SDL_Renderer *renderer, SDL_Texture *texture,
         }
     }
 
-    if (rdata->native_renderer.frame_count > 0 && vflash_video_tiled_address() != 0) {
-        SDL_SetError("live texture update rejected during tiled scanout");
-        return -1;
-    }
-
     vflash_texture_type_t native_type;
     uint16_t *dst = s_conversion_buf;
 

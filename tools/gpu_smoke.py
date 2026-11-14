@@ -996,6 +996,9 @@ def run_color_mod(mmu, view, emulator, bios, base):
         assert px_at(sx, 132 + 14) == exp_blend, f"{mmu} Geom a=128 idx={i}: {px_at(sx, 146)} != {exp_blend}"
         assert px_at(sx, 176 + 14) == exp_opaque, f"{mmu} Copy a=255 idx={i}: {px_at(sx, 190)} != {exp_opaque}"
 
+    exp_live = (q5_to_8(48), q5_to_8(144), q5_to_8(240))
+    assert px_at(16 + 8, 208 + 14) == exp_live, f"{mmu} live SDL_UpdateTexture: {px_at(24, 222)} != {exp_live}"
+
     result.write_text(json.dumps(dict(passed=True, mmu=mmu), indent=2) + "\n")
     return f"PASS color-mod {mmu}"
 
