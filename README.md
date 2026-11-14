@@ -10,6 +10,16 @@ emulator; physical hardware is currently untested.
 - **Graphics & Display:** Double-buffered 320x240 BGR555 linear framebuffer,
   5x7 printable ASCII font, software drawing primitives, Zevio 2D/3D GPU HAL,
   and an upstream SDL2 port (`SDL2` + Zevio 2D renderer).
+  - **Native GPU Renderer:** Double-buffered `1024x240` tiled surfaces
+    (`320x240` playfield at `(0, 0)` plus a `704x240` offscreen texture atlas at
+    `(320, 0)`), supporting hardware clipping, quads, textured/tinted/alpha-blended
+    sprites, textured triangles (`SDL_RenderGeometry`), RGB color modulation,
+    offscreen render targets, and per-tile dirty-bitmask synchronization between
+    the two tiled surfaces.
+  - **SDL2 Limitations:** Full-texture `SDL_UpdateTexture()` only (no partial
+    rect updates or `SDL_TEXTUREACCESS_STREAMING` lock/unlock), static
+    `704x240` atlas without runtime compaction, and even texture widths for
+    non-target textures.
 - **Audio & Video:** Native PCM audio ring-buffer driver (`S16LE` / `U8`),
   Motion JPEG (`MJP`) video + ADPCM/PCM playback via PicoJPEG, and a
   double-buffered loading screen.
@@ -52,6 +62,9 @@ python3 -m unittest discover -s tests -v
 python3 tools/emulator_smoke.py --suite suite
 python3 tools/emulator_smoke.py --suite bad-apple
 python3 tools/emulator_smoke.py --suite fmv
+for t in atlas-frag color-mod dirty-sync lifecycle renderer sdl2 triangle-tex; do
+  python3 tools/gpu_smoke.py --test "$t" --mmu both
+done
 ```
 
 For a single-disc firmware boot and scanout check:
