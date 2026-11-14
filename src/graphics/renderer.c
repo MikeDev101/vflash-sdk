@@ -145,6 +145,14 @@ static void free_atlas_slot(vflash_renderer_t *r, uint32_t x, uint32_t y,
         }
     }
     r->atlas_free_count = n;
+
+    uint32_t free_area = 0;
+    for (uint32_t i = 0; i < n; ++i) {
+        free_area += (uint32_t)rects[i].w * (uint32_t)rects[i].h;
+    }
+    if (free_area == r->config.atlas_width * r->config.atlas_height) {
+        init_atlas_free(r);
+    }
 }
 
 static vflash_gpu_result_t alloc_atlas_slot(vflash_renderer_t *r,

@@ -209,6 +209,71 @@ int main(void) {
     assert(r.atlas_free_count == 1 && r.atlas_free[0].x == cfg.atlas_x &&
            r.atlas_free[0].y == cfg.atlas_y && r.atlas_free[0].w == 8 && r.atlas_free[0].h == 32);
 
+    // Fragmentation stress: mixed sizes, scrambled free order, repeated cycles
+    r.atlas_free_count = 1;
+    r.atlas_free[0].x = (uint16_t)cfg.atlas_x;
+    r.atlas_free[0].y = (uint16_t)cfg.atlas_y;
+    r.atlas_free[0].w = (uint16_t)cfg.atlas_width;
+    r.atlas_free[0].h = (uint16_t)cfg.atlas_height;
+    {
+        static const uint16_t sizes[6][2] = {
+            { 8, 8 }, { 12, 16 }, { 16, 8 }, { 4, 24 }, { 20, 12 }, { 8, 16 }
+        };
+        vflash_texture_t pool[8];
+        uint8_t live[8] = { 0 };
+        uint32_t rng = 0x12345678u;
+        for (int iter = 0; iter < 64; ++iter) {
+            rng = rng * 1664525u + 1013904223u;
+            int idx = (int)((rng >> 24) & 7u);
+            if (!live[idx]) {
+                int s = (int)((rng >> 16) % 6u);
+                uint32_t ax = 0, ay = 0;
+                uint32_t w = sizes[s][0], h = sizes[s][1];
+                // Use upload_texture? gpu is uninit, so test via create_target
+                // only for OOM or test destroy_texture coalescing directly.
+                (void)ax; (void)ay;
+                pool[idx].width = w;
+                pool[idx].height = h;
+                pool[idx].type = VFLASH_TEXTURE_OPAQUE;
+                pool[idx].id = r.generation_id;
+                // Find first fitting free rect to simulate alloc
+                for (uint32_t fi = 0; fi < r.atlas_free_count; ++fi) {
+                    if (r.atlas_free[fi].w >= w && r.atlas_free[fi].h >= h) {
+                        vflash_atlas_rect_t c = r.atlas_free[fi];
+                        r.atlas_free[fi] = r.atlas_free[--r.atlas_free_count];
+                        if (c.w > w && r.atlas_free_count < VFLASH_MAX_ATLAS_FREE_RECTS) {
+                            r.atlas_free[r.atlas_free_count++] = (vflash_atlas_rect_t){
+                                (uint16_t)(c.x + w), c.y, (uint16_t)(c.w - w), (uint16_t)h
+                            };
+                        }
+                        if (c.h > h && r.atlas_free_count < VFLASH_MAX_ATLAS_FREE_RECTS) {
+                            r.atlas_free[r.atlas_free_count++] = (vflash_atlas_rect_t){
+                                c.x, (uint16_t)(c.y + h), c.w, (uint16_t)(c.h - h)
+                            };
+                        }
+                        pool[idx].atlas_x = c.x;
+                        pool[idx].atlas_y = c.y;
+                        live[idx] = 1;
+                        break;
+                    }
+                }
+            } else {
+                assert(vflash_renderer_destroy_texture(&r, &pool[idx]) == VFLASH_GPU_OK);
+                live[idx] = 0;
+            }
+        }
+        for (int idx = 0; idx < 8; ++idx) {
+            if (live[idx]) {
+                assert(vflash_renderer_destroy_texture(&r, &pool[idx]) == VFLASH_GPU_OK);
+            }
+        }
+        assert(r.atlas_free_count == 1 &&
+               r.atlas_free[0].x == cfg.atlas_x &&
+               r.atlas_free[0].y == cfg.atlas_y &&
+               r.atlas_free[0].w == cfg.atlas_width &&
+               r.atlas_free[0].h == cfg.atlas_height);
+    }
+
     tex.width = 16; tex.height = 16; tex.atlas_x = 96; tex.atlas_y = 0; tex.type = VFLASH_TEXTURE_OPAQUE; tex.id = 1;
     assert(vflash_renderer_destroy_texture(NULL, &tex) == VFLASH_GPU_NOT_INITIALIZED);
     assert(vflash_renderer_destroy_texture(&r, NULL) == VFLASH_GPU_INVALID);

@@ -269,6 +269,54 @@ void vflash_main(void)
         if (churn) SDL_DestroyTexture(churn);
     }
 
+    // Fragmentation stress: mixed-size textures, scrambled destroy order,
+    // and repeated allocation cycles exercising the real SDL2/Zevio free list.
+    {
+        static const int mix_dims[8][2] = {
+            { 64, 64 }, { 32, 48 }, { 96, 32 }, { 16, 64 },
+            { 48, 48 }, { 128, 32 }, { 24, 56 }, { 80, 40 }
+        };
+        SDL_Texture *slot[8] = { NULL };
+        uint32_t rng = 0x9E3779B9u;
+        for (int cyc = 0; cyc < 4; ++cyc) {
+            for (int i = 0; i < 8; ++i) {
+                int w = mix_dims[(i + cyc) & 7][0];
+                int h = mix_dims[(i + cyc) & 7][1];
+                slot[i] = SDL_CreateTexture(
+                    ren, SDL_PIXELFORMAT_ARGB8888,
+                    SDL_TEXTUREACCESS_STATIC, w, h);
+                if (!slot[i] ||
+                    SDL_UpdateTexture(slot[i], NULL, big_pixels, w * 4) != 0) {
+                    transform_errors++;
+                }
+            }
+            // Destroy in pseudo-random scrambled order
+            int order[8] = { 0, 1, 2, 3, 4, 5, 6, 7 };
+            for (int i = 7; i > 0; --i) {
+                rng = rng * 1664525u + 1013904223u;
+                int j = (int)(rng % (uint32_t)(i + 1));
+                int tmp = order[i];
+                order[i] = order[j];
+                order[j] = tmp;
+            }
+            for (int i = 0; i < 8; ++i) {
+                int k = order[i];
+                if (slot[k]) {
+                    SDL_DestroyTexture(slot[k]);
+                    slot[k] = NULL;
+                }
+            }
+        }
+        // Verify full coalescing allows a 192x160 allocation afterward
+        SDL_Texture *big_after = SDL_CreateTexture(
+            ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 192, 160);
+        if (!big_after) {
+            transform_errors++;
+        } else {
+            SDL_DestroyTexture(big_after);
+        }
+    }
+
     for (int f = 0; f < 16; ++f) {
         render_scene(ren, tex, alpha_tex, target_tex, f);
     }
