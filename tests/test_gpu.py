@@ -274,6 +274,25 @@ int main(void) {
                r.atlas_free[0].h == cfg.atlas_height);
     }
 
+    // Separate fragmentation vs insufficient-area vs metadata-overflow failures
+    r.atlas_alloc_fail_oom = 0;
+    r.atlas_alloc_fail_frag = 0;
+    r.atlas_alloc_fail_meta = 0;
+    r.atlas_free_count = 2;
+    r.atlas_free[0] = (vflash_atlas_rect_t){ (uint16_t)cfg.atlas_x, (uint16_t)cfg.atlas_y, 8, 8 };
+    r.atlas_free[1] = (vflash_atlas_rect_t){ (uint16_t)(cfg.atlas_x + 16), (uint16_t)cfg.atlas_y, 8, 8 };
+    assert(vflash_renderer_create_target(&r, &t3, 16, 8, VFLASH_TEXTURE_OPAQUE) == VFLASH_GPU_OUT_OF_MEMORY);
+    assert(r.atlas_alloc_fail_frag == 1 && r.atlas_alloc_fail_oom == 0);
+    assert(vflash_renderer_create_target(&r, &t3, 16, 16, VFLASH_TEXTURE_OPAQUE) == VFLASH_GPU_OUT_OF_MEMORY);
+    assert(r.atlas_alloc_fail_oom == 1 && r.atlas_alloc_fail_frag == 1);
+
+    r.atlas_free_count = VFLASH_MAX_ATLAS_FREE_RECTS;
+    for (uint32_t i = 0; i < VFLASH_MAX_ATLAS_FREE_RECTS; ++i) {
+        r.atlas_free[i] = (vflash_atlas_rect_t){ (uint16_t)cfg.atlas_x, (uint16_t)cfg.atlas_y, 16, 16 };
+    }
+    assert(vflash_renderer_create_target(&r, &t3, 8, 8, VFLASH_TEXTURE_OPAQUE) == VFLASH_GPU_OUT_OF_MEMORY);
+    assert(r.atlas_alloc_fail_meta == 1 && r.atlas_free_count == VFLASH_MAX_ATLAS_FREE_RECTS);
+
     tex.width = 16; tex.height = 16; tex.atlas_x = 96; tex.atlas_y = 0; tex.type = VFLASH_TEXTURE_OPAQUE; tex.id = 1;
     assert(vflash_renderer_destroy_texture(NULL, &tex) == VFLASH_GPU_NOT_INITIALIZED);
     assert(vflash_renderer_destroy_texture(&r, NULL) == VFLASH_GPU_INVALID);

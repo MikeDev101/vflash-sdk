@@ -47,6 +47,10 @@ vflash_gpu_result_t vflash_renderer_init(vflash_renderer_t *r, const vflash_rend
     } else {
         r->atlas_free_count = 0;
     }
+    r->atlas_alloc_fail_oom = 0;
+    r->atlas_alloc_fail_frag = 0;
+    r->atlas_alloc_fail_meta = 0;
+    r->atlas_free_overflow = 0;
     r->clip_x = 0;
     r->clip_y = 0;
     r->clip_w = (int32_t)cfg->playfield_width;
@@ -90,6 +94,10 @@ vflash_gpu_result_t vflash_renderer_reset_atlas(vflash_renderer_t *r)
     if (res) return res;
     if (!vflash_video_restore_linear()) return VFLASH_GPU_DEVICE_ERROR;
     init_atlas_free(r);
+    r->atlas_alloc_fail_oom = 0;
+    r->atlas_alloc_fail_frag = 0;
+    r->atlas_alloc_fail_meta = 0;
+    r->atlas_free_overflow = 0;
     r->generation_id++;
     if (!r->generation_id) r->generation_id = 1;
     r->current = &r->surf_a;
@@ -108,15 +116,39 @@ static void free_atlas_slot(vflash_renderer_t *r, uint32_t x, uint32_t y,
                             uint32_t w, uint32_t h)
 {
     if (!w || !h) return;
-    if (r->atlas_free_count >= VFLASH_MAX_ATLAS_FREE_RECTS) return;
 
     vflash_atlas_rect_t *rects = r->atlas_free;
     uint32_t n = r->atlas_free_count;
-    rects[n].x = (uint16_t)x;
-    rects[n].y = (uint16_t)y;
-    rects[n].w = (uint16_t)w;
-    rects[n].h = (uint16_t)h;
-    n++;
+    if (n >= VFLASH_MAX_ATLAS_FREE_RECTS) {
+        int absorbed = 0;
+        for (uint32_t i = 0; i < n; ++i) {
+            vflash_atlas_rect_t *a = &rects[i];
+            if (a->x == x && a->w == w &&
+                (a->y + a->h == y || y + h == a->y)) {
+                if (y < a->y) a->y = (uint16_t)y;
+                a->h = (uint16_t)(a->h + h);
+                absorbed = 1;
+                break;
+            }
+            if (a->y == y && a->h == h &&
+                (a->x + a->w == x || x + w == a->x)) {
+                if (x < a->x) a->x = (uint16_t)x;
+                a->w = (uint16_t)(a->w + w);
+                absorbed = 1;
+                break;
+            }
+        }
+        if (!absorbed) {
+            r->atlas_free_overflow++;
+            return;
+        }
+    } else {
+        rects[n].x = (uint16_t)x;
+        rects[n].y = (uint16_t)y;
+        rects[n].w = (uint16_t)w;
+        rects[n].h = (uint16_t)h;
+        n++;
+    }
 
     int merged = 1;
     while (merged) {
@@ -181,14 +213,29 @@ static vflash_gpu_result_t alloc_atlas_slot(vflash_renderer_t *r,
     }
 
     if (best_idx >= r->atlas_free_count) {
+        uint32_t free_area = 0;
+        for (uint32_t i = 0; i < r->atlas_free_count; ++i) {
+            free_area += (uint32_t)r->atlas_free[i].w *
+                         (uint32_t)r->atlas_free[i].h;
+        }
+        if (free_area >= alloc_w * height) {
+            r->atlas_alloc_fail_frag++;
+        } else {
+            r->atlas_alloc_fail_oom++;
+        }
         return VFLASH_GPU_OUT_OF_MEMORY;
     }
 
     vflash_atlas_rect_t chosen = r->atlas_free[best_idx];
-    r->atlas_free[best_idx] = r->atlas_free[--r->atlas_free_count];
-
     uint32_t rem_w = chosen.w - alloc_w;
     uint32_t rem_h = chosen.h - height;
+    uint32_t needed_slots = (rem_w > 0 ? 1u : 0u) + (rem_h > 0 ? 1u : 0u);
+    if (r->atlas_free_count - 1u + needed_slots > VFLASH_MAX_ATLAS_FREE_RECTS) {
+        r->atlas_alloc_fail_meta++;
+        return VFLASH_GPU_OUT_OF_MEMORY;
+    }
+
+    r->atlas_free[best_idx] = r->atlas_free[--r->atlas_free_count];
     vflash_atlas_rect_t right = { 0, 0, 0, 0 };
     vflash_atlas_rect_t bottom = { 0, 0, 0, 0 };
     if (rem_w > rem_h) {

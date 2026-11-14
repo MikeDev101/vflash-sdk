@@ -41,7 +41,10 @@ function(vflash_add_program target script)
         -Wall -Wextra -Werror
         $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions -fno-rtti>)
     set(linker_script "${VFLASH_SDK_DIR}/startup/${script}")
+    # ARM926EJ-S is ARMv5TEJ (single-core, no ARMv6 CP15 c7,c10,5 DMB);
+    # DMA barriers use explicit CP15 c7,c10,4 Drain Write Buffer in vflash_mmu.c.
     target_link_options(${target} PRIVATE ${arch_flags} -nostdlib -nostartfiles -static
+        -specs=sync-none.specs
         "-T${linker_script}" -Wl,--gc-sections -Wl,--build-id=none -Wl,-z,noexecstack
         "-Wl,-Map,${CMAKE_BINARY_DIR}/${target}.map" -Wl,--no-undefined
         -lgcc)
