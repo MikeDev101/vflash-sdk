@@ -325,6 +325,7 @@ int32_t vflash_fs_read(int fd, void *buf, uint32_t count)
         } else if (sec_off == 0 && bytes_left >= (FS_CACHE_SECTORS * VFLASH_CD_SECTOR_SIZE) && (((uintptr_t)dst & 3u) == 0)) {
             // Fast path: large burst multi-sector DMA read into 4-byte aligned destination
             uint32_t full_sectors = bytes_left >> 11;
+            if (full_sectors > 32u) full_sectors = 32u;
             if (vflash_cd_read_sectors(cur_lba, full_sectors, dst) != (int)full_sectors) {
                 s_files[fd].file_pos = file_pos;
                 return (count > bytes_left) ? (int32_t)(count - bytes_left) : -1;
