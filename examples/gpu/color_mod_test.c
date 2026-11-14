@@ -87,14 +87,30 @@ void vflash_main(void)
     SDL_UpdateTexture(white_tex, NULL, white_pixels, 16 * 4);
 
     static uint32_t live_pixels[16 * 16];
+    static uint32_t live_pixels_b[16 * 16];
+    static uint32_t live_pixels_c[16 * 16];
     for (int i = 0; i < 16 * 16; ++i) {
-        live_pixels[i] = 0xFF0000FFu; // Initial: red (RGBA32)
+        live_pixels[i] = 0xFF0000FFu;   // Initial: red
+        live_pixels_b[i] = 0xFFFF00FFu; // Initial: magenta
+        live_pixels_c[i] = 0xFF0000FFu; // Initial: red
     }
     SDL_Texture *live_tex = SDL_CreateTexture(
         ren, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, 16, 16);
-    if (!live_tex) return;
+    SDL_Texture *live_tex_b = SDL_CreateTexture(
+        ren, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, 16, 16);
+    SDL_Texture *live_tex_c = SDL_CreateTexture(
+        ren, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, 16, 16);
+    SDL_Texture *live_tex_d = SDL_CreateTexture(
+        ren, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, 16, 16);
+    if (!live_tex || !live_tex_b || !live_tex_c || !live_tex_d) return;
     SDL_SetTextureBlendMode(live_tex, SDL_BLENDMODE_BLEND);
+    SDL_SetTextureBlendMode(live_tex_b, SDL_BLENDMODE_BLEND);
+    SDL_SetTextureBlendMode(live_tex_c, SDL_BLENDMODE_BLEND);
+    SDL_SetTextureBlendMode(live_tex_d, SDL_BLENDMODE_BLEND);
     SDL_UpdateTexture(live_tex, NULL, live_pixels, 16 * 4);
+    SDL_UpdateTexture(live_tex_b, NULL, live_pixels_b, 16 * 4);
+    SDL_UpdateTexture(live_tex_c, NULL, live_pixels_c, 16 * 4);
+    SDL_UpdateTexture(live_tex_d, NULL, live_pixels, 16 * 4);
 
     static const uint8_t palette[7][3] = {
         { 255, 255, 255 }, // White
@@ -106,15 +122,27 @@ void vflash_main(void)
         {  48, 144, 240 }, // Arbitrary RGB (0x3090F0)
     };
 
-    int live_updated = 0;
     for (uint32_t frame = 0; ; ++frame) {
-        if (!live_updated && frame >= 10) {
-            for (int i = 0; i < 16 * 16; ++i) {
-                live_pixels[i] = 0xFFFFFFFFu; // Updated live during tiled scanout: white
-            }
-            if (SDL_UpdateTexture(live_tex, NULL, live_pixels, 16 * 4) == 0) {
-                live_updated = 1;
-            }
+        // 1. Consecutive-frame updates on live_tex (frames 10, 11, 12)
+        if (frame == 10 || frame == 12) {
+            for (int i = 0; i < 16 * 16; ++i) live_pixels[i] = 0xFFFFFFFFu;
+            SDL_UpdateTexture(live_tex, NULL, live_pixels, 16 * 4);
+        } else if (frame == 11) {
+            for (int i = 0; i < 16 * 16; ++i) live_pixels[i] = 0xFF00FF00u;
+            SDL_UpdateTexture(live_tex, NULL, live_pixels, 16 * 4);
+        }
+        // 2. Multi-texture update + 5. destroy/recreate while atlas_sync_pending
+        if (frame == 12) {
+            for (int i = 0; i < 16 * 16; ++i) live_pixels_b[i] = 0xFFFFFFFFu;
+            SDL_UpdateTexture(live_tex_b, NULL, live_pixels_b, 16 * 4);
+
+            SDL_UpdateTexture(live_tex_d, NULL, live_pixels_b, 16 * 4);
+            SDL_DestroyTexture(live_tex_d);
+            live_tex_d = SDL_CreateTexture(
+                ren, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, 16, 16);
+            if (!live_tex_d) return;
+            SDL_SetTextureBlendMode(live_tex_d, SDL_BLENDMODE_BLEND);
+            SDL_UpdateTexture(live_tex_d, NULL, live_pixels_b, 16 * 4);
         }
         SDL_SetRenderDrawColor(ren, 64, 64, 64, 255);
         SDL_RenderClear(ren);
@@ -144,8 +172,20 @@ void vflash_main(void)
             draw_swatch_copy_plain(ren, white_tex, x, 176, r, g, b, 255);
         }
 
-        // Row 5: Live-updated texture after frame 10 with RGB(48, 144, 240) mod
+        // Row 5: Live texture update stress tests
         draw_swatch_copy_plain(ren, live_tex, 16, 208, 48, 144, 240, 255);
+        draw_swatch_copy_plain(ren, live_tex_b, 52, 208, 255, 0, 0, 255);
+        if (frame >= 12) {
+            // 3 & 4. Alternating update -> draw -> update -> draw on same texture
+            for (int i = 0; i < 16 * 16; ++i) live_pixels_c[i] = 0xFF00FF00u; // Green
+            SDL_UpdateTexture(live_tex_c, NULL, live_pixels_c, 16 * 4);
+            draw_swatch_copy_plain(ren, live_tex_c, 88, 208, 255, 255, 255, 255);
+
+            for (int i = 0; i < 16 * 16; ++i) live_pixels_c[i] = 0xFFFF0000u; // Blue
+            SDL_UpdateTexture(live_tex_c, NULL, live_pixels_c, 16 * 4);
+            draw_swatch_copy_plain(ren, live_tex_c, 124, 208, 255, 255, 255, 255);
+        }
+        draw_swatch_copy_plain(ren, live_tex_d, 160, 208, 128, 128, 128, 255);
 
         SDL_RenderPresent(ren);
     }

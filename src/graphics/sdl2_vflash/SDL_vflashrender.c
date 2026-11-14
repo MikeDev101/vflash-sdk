@@ -236,7 +236,7 @@ static int VFLASH_UpdateTexture(SDL_Renderer *renderer, SDL_Texture *texture,
             &rdata->native_renderer, &tdata->native_tex,
             dst, (uint32_t)texture->w, (uint32_t)texture->h, native_type);
     } else {
-        res = vflash_renderer_upload_texture(
+        res = vflash_renderer_upload_texture_live(
             &rdata->native_renderer, &tdata->native_tex,
             dst, (uint32_t)texture->w, (uint32_t)texture->h, native_type);
     }

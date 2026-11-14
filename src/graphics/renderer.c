@@ -61,6 +61,7 @@ vflash_gpu_result_t vflash_renderer_init(vflash_renderer_t *r, const vflash_rend
     r->has_target = 0;
     r->target_op_count = 0;
     r->target_op_overflow = 0;
+    r->atlas_sync_pending = 0;
     r->initialized = 1;
     return VFLASH_GPU_OK;
 }
@@ -104,6 +105,7 @@ vflash_gpu_result_t vflash_renderer_reset_atlas(vflash_renderer_t *r)
     r->has_target = 0;
     r->target_op_count = 0;
     r->target_op_overflow = 0;
+    r->atlas_sync_pending = 0;
     r->clip_x = 0;
     r->clip_y = 0;
     r->clip_w = (int32_t)r->config.playfield_width;
@@ -444,13 +446,13 @@ static vflash_gpu_result_t upload_to_surfaces(
         return res;
     }
 
-    r->target_op_overflow = 1;
+    r->atlas_sync_pending = 1;
     return VFLASH_GPU_OK;
 }
 
-vflash_gpu_result_t vflash_renderer_upload_texture(vflash_renderer_t *r, vflash_texture_t *tex,
-                                                   const void *pixels, uint32_t width, uint32_t height,
-                                                   vflash_texture_type_t type)
+static vflash_gpu_result_t upload_texture_impl(vflash_renderer_t *r, vflash_texture_t *tex,
+                                               const void *pixels, uint32_t width, uint32_t height,
+                                               vflash_texture_type_t type, int allow_live)
 {
     if (!r || !r->initialized) return VFLASH_GPU_NOT_INITIALIZED;
     if (!tex || !pixels || !width || !height) return VFLASH_GPU_INVALID;
@@ -458,15 +460,12 @@ vflash_gpu_result_t vflash_renderer_upload_texture(vflash_renderer_t *r, vflash_
     if (type > VFLASH_TEXTURE_TRANSLUCENT) return VFLASH_GPU_INVALID;
     if (width > r->config.atlas_width || height > r->config.atlas_height) return VFLASH_GPU_INVALID;
 
-    uint32_t front = vflash_video_tiled_address();
-    if (front) {
-        uint32_t fbytes = vflash_video_tiled_bytes();
-        uint32_t sa_bytes = (r->surf_a.fb.height >> 3) * 16384u;
-        uint32_t sb_bytes = (r->surf_b.fb.height >> 3) * 16384u;
-        if ((r->surf_a.physical_address < front + fbytes && front < r->surf_a.physical_address + sa_bytes) ||
-            (r->surf_b.physical_address < front + fbytes && front < r->surf_b.physical_address + sb_bytes)) {
+    if (allow_live) {
+        if (!can_touch_surface(r->current)) {
             return VFLASH_GPU_BUSY;
         }
+    } else if (!can_touch_surface(&r->surf_a) || !can_touch_surface(&r->surf_b)) {
+        return VFLASH_GPU_BUSY;
     }
 
     uint32_t ax = 0, ay = 0;
@@ -501,6 +500,20 @@ vflash_gpu_result_t vflash_renderer_upload_texture(vflash_renderer_t *r, vflash_
     tex->type = type;
     tex->id = r->generation_id;
     return VFLASH_GPU_OK;
+}
+
+vflash_gpu_result_t vflash_renderer_upload_texture(vflash_renderer_t *r, vflash_texture_t *tex,
+                                                   const void *pixels, uint32_t width, uint32_t height,
+                                                   vflash_texture_type_t type)
+{
+    return upload_texture_impl(r, tex, pixels, width, height, type, 0);
+}
+
+vflash_gpu_result_t vflash_renderer_upload_texture_live(vflash_renderer_t *r, vflash_texture_t *tex,
+                                                        const void *pixels, uint32_t width, uint32_t height,
+                                                        vflash_texture_type_t type)
+{
+    return upload_texture_impl(r, tex, pixels, width, height, type, 1);
 }
 
 vflash_gpu_result_t vflash_renderer_update_texture(
@@ -975,7 +988,7 @@ vflash_gpu_result_t vflash_renderer_present(vflash_renderer_t *r)
     if (res) return res;
 
     vflash_gpu_surface_t *other = other_surface(r);
-    if (r->target_op_overflow) {
+    if (r->target_op_overflow || r->atlas_sync_pending) {
         vflash_gpu_wait_idle(&r->gpu);
         sync_atlas_tiles(r, r->current, other);
     } else {
@@ -984,12 +997,14 @@ vflash_gpu_result_t vflash_renderer_present(vflash_renderer_t *r)
             if (res) {
                 r->target_op_count = 0;
                 r->target_op_overflow = 0;
+                r->atlas_sync_pending = 0;
                 return res;
             }
         }
     }
     r->target_op_count = 0;
     r->target_op_overflow = 0;
+    r->atlas_sync_pending = 0;
     r->frame_count++;
     r->current = other;
 

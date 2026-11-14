@@ -997,7 +997,11 @@ def run_color_mod(mmu, view, emulator, bios, base):
         assert px_at(sx, 176 + 14) == exp_opaque, f"{mmu} Copy a=255 idx={i}: {px_at(sx, 190)} != {exp_opaque}"
 
     exp_live = (q5_to_8(48), q5_to_8(144), q5_to_8(240))
-    assert px_at(16 + 8, 208 + 14) == exp_live, f"{mmu} live SDL_UpdateTexture: {px_at(24, 222)} != {exp_live}"
+    assert px_at(16 + 8, 208 + 14) == exp_live, f"{mmu} live consecutive update: {px_at(24, 222)} != {exp_live}"
+    assert px_at(52 + 8, 208 + 14) == (255, 0, 0), f"{mmu} live multi-tex update: {px_at(60, 222)}"
+    assert px_at(88 + 8, 208 + 14) == (0, 255, 0), f"{mmu} live alt draw 1 (green): {px_at(96, 222)}"
+    assert px_at(124 + 8, 208 + 14) == (0, 0, 255), f"{mmu} live alt draw 2 (blue): {px_at(132, 222)}"
+    assert px_at(160 + 8, 208 + 14) == (q5_to_8(128), q5_to_8(128), q5_to_8(128)), f"{mmu} live destroy/recreate: {px_at(168, 222)}"
 
     result.write_text(json.dumps(dict(passed=True, mmu=mmu), indent=2) + "\n")
     return f"PASS color-mod {mmu}"

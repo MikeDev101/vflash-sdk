@@ -118,6 +118,7 @@ typedef struct
     int32_t saved_clip_h;
     uint32_t target_op_count;
     uint8_t target_op_overflow;
+    uint8_t atlas_sync_pending;
     vflash_target_op_t target_ops[VFLASH_MAX_TARGET_OPS];
 } vflash_renderer_t;
 
@@ -231,6 +232,18 @@ vflash_gpu_result_t vflash_renderer_upload_texture(vflash_renderer_t *r,
                                                    uint32_t width,
                                                    uint32_t height,
                                                    vflash_texture_type_t type);
+
+//
+// Upload a new texture to the offscreen atlas, allowing live uploads during
+// active tiled scanout by writing to the backbuffer and deferring atlas sync
+// to vflash_renderer_present().
+//
+vflash_gpu_result_t vflash_renderer_upload_texture_live(vflash_renderer_t *r,
+                                                        vflash_texture_t *tex,
+                                                        const void *pixels,
+                                                        uint32_t width,
+                                                        uint32_t height,
+                                                        vflash_texture_type_t type);
 
 //
 // Re-upload pixel data into an existing texture's atlas slot in-place.
