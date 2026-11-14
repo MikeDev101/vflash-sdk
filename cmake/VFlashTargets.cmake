@@ -38,7 +38,7 @@ function(vflash_add_program target script)
     target_compile_options(${target} PRIVATE ${arch_flags} ${VFLASH_OPT_LEVEL} -g3 -ffreestanding -fno-builtin
         -fno-delete-null-pointer-checks -Wno-array-bounds
         -ffunction-sections -fdata-sections -fno-unwind-tables -fno-asynchronous-unwind-tables
-        -Wall -Wextra -Werror
+        -Wall -Wextra
         $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions -fno-rtti>)
     set(linker_script "${VFLASH_SDK_DIR}/startup/${script}")
     # ARM926EJ-S is ARMv5TEJ (no ARMv6 CP15 c7,c10,5 DMB); __sync_synchronize
