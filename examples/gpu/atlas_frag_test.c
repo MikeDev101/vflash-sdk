@@ -15,7 +15,7 @@ volatile uint32_t startup_status;
 volatile uint32_t data_cookie = 0x13579BDFu;
 volatile uint32_t frag_metrics[9];
 
-static uint32_t scratch_pixels[240 * 180];
+static uint32_t scratch_pixels[320 * 240];
 
 static void fill_abgr(uint32_t *buf, uint32_t count, uint32_t abgr)
 {
@@ -214,17 +214,51 @@ void vflash_main(void)
         if (!reuse_tex[i]) all_ok = 0;
     }
 
-    frag_metrics[0] = phase1_fails;
-    frag_metrics[1] = phase1_min_largest;
-    frag_metrics[2] = phase1_max_rects;
-    frag_metrics[3] = frag_st.free_texels;
-    frag_metrics[4] = frag_st.largest_free_texels;
-    frag_metrics[5] = phase2_frag_fails;
-    frag_metrics[6] = p1_end_st.fail_frag;
-    frag_metrics[7] = p1_end_st.fail_oom;
-    frag_metrics[8] = p1_end_st.fail_meta;
+    // Phase 4: Expanded 704x240 atlas boundary, tile-crossing, and live-update checks.
+    // Free Phase 3 textures first so we can lay out exact boundary allocations.
+    for (int i = 0; i < 7; ++i) {
+        if (reuse_tex[i]) SDL_DestroyTexture(reuse_tex[i]);
+    }
+    if (vflash_renderer_get_atlas_stats(nr, &st) != VFLASH_GPU_OK ||
+        st.free_texels != st.total_texels || st.free_rect_count != 1u) {
+        all_ok = 0;
+    }
 
-    for (int frame = 0; frame < 8; ++frame) {
+    // Filler 1: 304x240 at atlas x=320..623
+    SDL_Texture *filler1 = make_tex(ren, 304, 240, 0xFF202020u);
+    // Crosses X=639/640 (placed at x=624..655, y=0..31)
+    SDL_Texture *tex_cross640 = make_tex(ren, 32, 32, 0xFF0000FFu); // Red (ABGR)
+    // Filler 2: 288x240 at atlas x=656..943
+    SDL_Texture *filler2 = make_tex(ren, 288, 240, 0xFF202020u);
+    // Crosses X=959/960 (placed at x=944..975, y=0..31)
+    SDL_Texture *tex_cross960 = make_tex(ren, 32, 32, 0xFFFFFFFFu); // White (for color mod)
+    // Reaches X=1023 (placed at x=976..1023, y=0..31, crosses X=991/992)
+    SDL_Texture *tex_right_edge = make_tex(ren, 48, 32, 0x80FFFFFFu); // ~50% alpha white
+    // Crosses Y=231/232 and reaches Y=239 (placed at x=624..655, y=32..239)
+    SDL_Texture *tex_bottom = SDL_CreateTexture(ren, SDL_PIXELFORMAT_RGBA32,
+                                                SDL_TEXTUREACCESS_STATIC, 32, 208);
+    if (!filler1 || !tex_cross640 || !filler2 || !tex_cross960 || !tex_right_edge || !tex_bottom) {
+        all_ok = 0;
+    } else {
+        SDL_SetTextureBlendMode(tex_bottom, SDL_BLENDMODE_BLEND);
+        fill_abgr(scratch_pixels, 32u * 200u, 0xFF00FF00u); // Green rows 0..199 (atlas y=32..231)
+        fill_abgr(scratch_pixels + 32u * 200u, 32u * 8u, 0xFFFF00FFu); // Magenta rows 200..207 (atlas y=232..239)
+        if (SDL_UpdateTexture(tex_bottom, NULL, scratch_pixels, 32 * 4) < 0) all_ok = 0;
+    }
+
+    // Re-allocate the 7 Phase 3 swatches in the remaining space (944..1023, y=32..239).
+    for (int i = 0; i < 7; ++i) {
+        reuse_tex[i] = make_tex(ren, 24, 24, colors[i]);
+        if (!reuse_tex[i]) all_ok = 0;
+    }
+
+    // Present one frame so tiled scanout is active before live updates.
+    SDL_SetRenderDrawColor(ren, 16, 16, 24, 255);
+    SDL_RenderClear(ren);
+    SDL_RenderPresent(ren);
+
+    // Final frames: test intra-frame live updates, ordering, color mod, alpha, and destroy/recreate.
+    for (int frame = 0; frame < 4; ++frame) {
         SDL_SetRenderDrawColor(ren, 16, 16, 24, 255);
         SDL_RenderClear(ren);
 
@@ -233,6 +267,56 @@ void vflash_main(void)
                 SDL_Rect dst = { 16 + i * 36, 24, 24, 24 };
                 SDL_RenderCopy(ren, reuse_tex[i], NULL, &dst);
             }
+        }
+
+        // Reset tex_cross640 to Red, draw at x=60; update to Cyan, draw at x=92; update to Yellow, draw at x=124.
+        if (tex_cross640) {
+            fill_abgr(scratch_pixels, 32u * 32u, 0xFF0000FFu); // Red
+            if (SDL_UpdateTexture(tex_cross640, NULL, scratch_pixels, 32 * 4) < 0) all_ok = 0;
+            SDL_Rect d1 = { 60, 120, 24, 24 };
+            SDL_RenderCopy(ren, tex_cross640, NULL, &d1);
+
+            fill_abgr(scratch_pixels, 32u * 32u, 0xFFFFFF00u); // Cyan
+            if (SDL_UpdateTexture(tex_cross640, NULL, scratch_pixels, 32 * 4) < 0) all_ok = 0;
+            SDL_Rect d2 = { 92, 120, 24, 24 };
+            SDL_RenderCopy(ren, tex_cross640, NULL, &d2);
+
+            fill_abgr(scratch_pixels, 32u * 32u, 0xFF00FFFFu); // Yellow
+            if (SDL_UpdateTexture(tex_cross640, NULL, scratch_pixels, 32 * 4) < 0) all_ok = 0;
+            SDL_Rect d3 = { 124, 120, 24, 24 };
+            SDL_RenderCopy(ren, tex_cross640, NULL, &d3);
+        }
+
+        // Color-modulated texture crossing X=959/960
+        if (tex_cross960) {
+            SDL_SetTextureColorMod(tex_cross960, 0, 255, 128);
+            SDL_Rect d4 = { 156, 120, 24, 24 };
+            SDL_RenderCopy(ren, tex_cross960, NULL, &d4);
+        }
+
+        // Alpha-blended texture reaching X=1023
+        if (tex_right_edge) {
+            SDL_Rect d5 = { 188, 120, 24, 24 };
+            SDL_RenderCopy(ren, tex_right_edge, NULL, &d5);
+        }
+
+        // Bottom-row texture crossing Y=231/232 down to Y=239
+        if (tex_bottom) {
+            SDL_Rect s6 = { 0, 176, 32, 32 };
+            SDL_Rect d6 = { 16, 120, 32, 32 };
+            SDL_RenderCopy(ren, tex_bottom, &s6, &d6);
+        }
+
+        // Destroy and recreate a texture while atlas_sync_pending is active
+        if (filler1) {
+            SDL_DestroyTexture(filler1);
+            filler1 = make_tex(ren, 64, 64, 0xFFFF8000u); // Blue-ish (ABGR)
+            if (!filler1) all_ok = 0;
+        }
+        if (filler1) {
+            SDL_Rect s7 = { 0, 0, 24, 24 };
+            SDL_Rect d7 = { 220, 120, 24, 24 };
+            SDL_RenderCopy(ren, filler1, &s7, &d7);
         }
 
         // Status bar: green if all checks passed, red otherwise
@@ -246,4 +330,32 @@ void vflash_main(void)
 
         SDL_RenderPresent(ren);
     }
+
+    // Final cleanup & coalescing verification
+    if (filler1) SDL_DestroyTexture(filler1);
+    if (filler2) SDL_DestroyTexture(filler2);
+    if (tex_cross640) SDL_DestroyTexture(tex_cross640);
+    if (tex_cross960) SDL_DestroyTexture(tex_cross960);
+    if (tex_right_edge) SDL_DestroyTexture(tex_right_edge);
+    if (tex_bottom) SDL_DestroyTexture(tex_bottom);
+    for (int i = 0; i < 7; ++i) {
+        if (reuse_tex[i]) SDL_DestroyTexture(reuse_tex[i]);
+    }
+    vflash_atlas_stats_t final_st;
+    if (vflash_renderer_get_atlas_stats(nr, &final_st) != VFLASH_GPU_OK ||
+        final_st.free_texels != final_st.total_texels ||
+        final_st.largest_free_texels != final_st.total_texels ||
+        final_st.free_rect_count != 1u || final_st.live_count != 0u) {
+        all_ok = 0;
+    }
+
+    frag_metrics[0] = phase1_fails;
+    frag_metrics[1] = phase1_min_largest;
+    frag_metrics[2] = phase1_max_rects;
+    frag_metrics[3] = frag_st.free_texels;
+    frag_metrics[4] = frag_st.largest_free_texels;
+    frag_metrics[5] = phase2_frag_fails;
+    frag_metrics[6] = final_st.fail_frag;
+    frag_metrics[7] = final_st.fail_oom;
+    frag_metrics[8] = final_st.fail_meta;
 }

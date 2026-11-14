@@ -1044,6 +1044,21 @@ def run_atlas_frag(mmu, view, emulator, bios, base):
     exp_status = (0, q5_to_8(224), 0)
     assert px_at(56, 92) == exp_status, f"{mmu} atlas-frag status bar: {px_at(56, 92)} != {exp_status}"
 
+    # Phase 4 boundary, tile-crossing, live-update ordering, color-mod, alpha, and recreate checks
+    assert px_at(32, 128) == (0, 255, 0), f"{mmu} bottom-tex green rows: {px_at(32, 128)}"
+    assert px_at(32, 148) == (255, 0, 255), f"{mmu} bottom-tex Y=232..239 magenta rows: {px_at(32, 148)}"
+    assert px_at(72, 132) == (255, 0, 0), f"{mmu} cross640 pre-update red: {px_at(72, 132)}"
+    assert px_at(104, 132) == (0, 255, 255), f"{mmu} cross640 1st-update cyan: {px_at(104, 132)}"
+    assert px_at(136, 132) == (255, 255, 0), f"{mmu} cross640 2nd-update yellow: {px_at(136, 132)}"
+    exp_mod = (0, 255, q5_to_8(128))
+    assert px_at(168, 132) == exp_mod, f"{mmu} cross960 color-mod: {px_at(168, 132)} != {exp_mod}"
+    p_alpha = px_at(200, 132)
+    assert 100 <= p_alpha[0] <= 220 and p_alpha[0] == p_alpha[1] == p_alpha[2], (
+        f"{mmu} right-edge alpha blend: {p_alpha}"
+    )
+    exp_recreate = (0, 140, 255)
+    assert px_at(232, 132) == exp_recreate, f"{mmu} destroy+recreate while sync pending: {px_at(232, 132)} != {exp_recreate}"
+
     log_line = ""
     for log_name in ("stdout.log", "serial.log", "flashem.log"):
         lp = out / log_name
