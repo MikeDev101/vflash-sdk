@@ -156,6 +156,50 @@ vflash_gpu_result_t vflash_gpu_draw_sprite(vflash_gpu_t *g,vflash_gpu_surface_t 
 {
     return vflash_gpu_draw_sprite_ex(g,s,VFLASH_GPU_TEXTURE_BGR555_KEY,sx,sy,w,h,dx,dy);
 }
+vflash_gpu_result_t vflash_gpu_draw_quad_tex(
+    vflash_gpu_t *g, vflash_gpu_surface_t *s,
+    vflash_gpu_texture_format_t fmt, int32_t sx, int32_t sy,
+    uint8_t log2_tw, uint8_t log2_th,
+    const vflash_gpu_quad_vertex_t verts[4],
+    uint8_t alpha, uint32_t rgb_mod)
+{
+    vflash_gpu_result_t r = ready(g);
+    if (r) return r;
+    if (s && s->layout != VFLASH_GPU_LAYOUT_ZEVIO_TILED) {
+        return VFLASH_GPU_UNSUPPORTED;
+    }
+    if (fmt != VFLASH_GPU_TEXTURE_BGR555_KEY &&
+        fmt != VFLASH_GPU_TEXTURE_ABGR4444) {
+        return VFLASH_GPU_INVALID;
+    }
+    if (!verts) return VFLASH_GPU_INVALID;
+    return (g->backend == VFLASH_GPU_ZEVIO)
+        ? gpu_zevio_quad_tex(g, s, fmt, sx, sy, log2_tw, log2_th,
+                             verts, alpha, rgb_mod)
+        : VFLASH_GPU_UNSUPPORTED;
+}
+vflash_gpu_result_t vflash_gpu_draw_tri_tex(
+    vflash_gpu_t *g, vflash_gpu_surface_t *s,
+    vflash_gpu_texture_format_t fmt, int32_t sx, int32_t sy,
+    uint8_t log2_tw, uint8_t log2_th,
+    const vflash_gpu_quad_vertex_t verts[3],
+    uint8_t alpha, uint32_t rgb_mod)
+{
+    vflash_gpu_result_t r = ready(g);
+    if (r) return r;
+    if (s && s->layout != VFLASH_GPU_LAYOUT_ZEVIO_TILED) {
+        return VFLASH_GPU_UNSUPPORTED;
+    }
+    if (fmt != VFLASH_GPU_TEXTURE_BGR555_KEY &&
+        fmt != VFLASH_GPU_TEXTURE_ABGR4444) {
+        return VFLASH_GPU_INVALID;
+    }
+    if (!verts) return VFLASH_GPU_INVALID;
+    return (g->backend == VFLASH_GPU_ZEVIO)
+        ? gpu_zevio_tri_tex(g, s, fmt, sx, sy, log2_tw, log2_th,
+                            verts, alpha, rgb_mod)
+        : VFLASH_GPU_UNSUPPORTED;
+}
 vflash_gpu_result_t vflash_gpu_upload(vflash_gpu_t *g,vflash_gpu_surface_t *d,const vflash_gpu_surface_t *s,int32_t sx,int32_t sy,int32_t w,int32_t h,int32_t dx,int32_t dy)
 {
     vflash_gpu_result_t r=ready(g);if (r) return r;

@@ -211,4 +211,50 @@ vflash_gpu_result_t gpu_zevio_sprite_ex(vflash_gpu_t *g,
                                         int32_t w, int32_t h,
                                         int32_t dx, int32_t dy);
 
+//
+// Submit a Zevio 3D orthographic textured quad draw command.
+//
+// g:       Initialized Zevio GPU instance.
+// s:       Target tiled surface.
+// fmt:     Texture encoding format.
+// sx:      Source atlas origin X coordinate.
+// sy:      Source atlas origin Y coordinate.
+// log2_tw: Texture width exponent (0..7).
+// log2_th: Texture height exponent (0..7).
+// verts:   Four quad corners in Q16.16 fixed-point.
+// alpha:   Global opacity (0..255).
+// rgb_mod: 24-bit RGB color modulation (0x00RRGGBB).
+//
+// Returns VFLASH_GPU_OK on success, or an error code.
+//
+vflash_gpu_result_t gpu_zevio_quad_tex(
+    vflash_gpu_t *g, vflash_gpu_surface_t *s,
+    vflash_gpu_texture_format_t fmt, int32_t sx, int32_t sy,
+    uint8_t log2_tw, uint8_t log2_th,
+    const vflash_gpu_quad_vertex_t verts[4],
+    uint8_t alpha, uint32_t rgb_mod);
+
+//
+// Submit a Zevio 3D orthographic textured triangle draw command.
+//
+// g:       Initialized Zevio GPU instance.
+// s:       Target tiled surface.
+// fmt:     Texture encoding format.
+// sx:      Source atlas origin X coordinate.
+// sy:      Source atlas origin Y coordinate.
+// log2_tw: Texture width exponent (0..7).
+// log2_th: Texture height exponent (0..7).
+// verts:   Three triangle vertices in Q16.16 fixed-point.
+// alpha:   Global opacity (0..255).
+// rgb_mod: 24-bit RGB color modulation (0x00RRGGBB).
+//
+// Returns VFLASH_GPU_OK on success, or an error code.
+//
+vflash_gpu_result_t gpu_zevio_tri_tex(
+    vflash_gpu_t *g, vflash_gpu_surface_t *s,
+    vflash_gpu_texture_format_t fmt, int32_t sx, int32_t sy,
+    uint8_t log2_tw, uint8_t log2_th,
+    const vflash_gpu_quad_vertex_t verts[3],
+    uint8_t alpha, uint32_t rgb_mod);
+
 #endif // VFLASH_GPU_INTERNAL_H

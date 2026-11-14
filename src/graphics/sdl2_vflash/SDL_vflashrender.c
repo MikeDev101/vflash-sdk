@@ -29,6 +29,14 @@ typedef struct {
     SDL_FRect dst;
 } VFLASH_CopyCmd;
 
+typedef struct {
+    SDL_Rect src;
+    SDL_FRect dst;
+    double angle;
+    SDL_FPoint center;
+    SDL_RendererFlip flip;
+} VFLASH_CopyExCmd;
+
 static void VFLASH_WindowEvent(SDL_Renderer *renderer, const SDL_WindowEvent *event)
 {
     (void)renderer;
@@ -223,8 +231,16 @@ static int VFLASH_UpdateTexture(SDL_Renderer *renderer, SDL_Texture *texture,
         }
     }
 
-    vflash_gpu_result_t res = vflash_renderer_upload_texture(&rdata->native_renderer, &tdata->native_tex,
-                                                             dst, (uint32_t)texture->w, (uint32_t)texture->h, native_type);
+    vflash_gpu_result_t res;
+    if (tdata->uploaded) {
+        res = vflash_renderer_update_texture(
+            &rdata->native_renderer, &tdata->native_tex,
+            dst, (uint32_t)texture->w, (uint32_t)texture->h, native_type);
+    } else {
+        res = vflash_renderer_upload_texture(
+            &rdata->native_renderer, &tdata->native_tex,
+            dst, (uint32_t)texture->w, (uint32_t)texture->h, native_type);
+    }
     if (res != VFLASH_GPU_OK) {
         SDL_SetError("failed to upload texture to atlas (%d)", (int)res);
         return -1;
@@ -356,12 +372,6 @@ static int VFLASH_QueueFillRects(SDL_Renderer *renderer, SDL_RenderCommand *cmd,
 static int VFLASH_QueueCopy(SDL_Renderer *renderer, SDL_RenderCommand *cmd, SDL_Texture *texture,
                             const SDL_Rect *srcrect, const SDL_FRect *dstrect)
 {
-    // Reject scaling
-    if ((int)dstrect->w != srcrect->w || (int)dstrect->h != srcrect->h) {
-        SDL_SetError("unsupported scaling in SDL_RenderCopy (source dimensions must equal destination dimensions)");
-        return -1;
-    }
-
     VFLASH_CopyCmd *copy = (VFLASH_CopyCmd *)SDL_AllocateRenderVertices(renderer,
                                                                         sizeof(VFLASH_CopyCmd),
                                                                         4, &cmd->data.draw.first);
@@ -376,9 +386,43 @@ static int VFLASH_QueueCopy(SDL_Renderer *renderer, SDL_RenderCommand *cmd, SDL_
     return 0;
 }
 
+static int VFLASH_QueueCopyEx(SDL_Renderer *renderer, SDL_RenderCommand *cmd,
+                              SDL_Texture *texture, const SDL_Rect *srcquad,
+                              const SDL_FRect *dstrect, const double angle,
+                              const SDL_FPoint *center,
+                              const SDL_RendererFlip flip,
+                              float scale_x, float scale_y)
+{
+    VFLASH_CopyExCmd *copy = (VFLASH_CopyExCmd *)SDL_AllocateRenderVertices(
+        renderer, sizeof(VFLASH_CopyExCmd), 4, &cmd->data.draw.first);
+    if (!copy) {
+        return -1;
+    }
+
+    copy->src = *srcquad;
+    copy->dst.x = dstrect->x * scale_x;
+    copy->dst.y = dstrect->y * scale_y;
+    copy->dst.w = dstrect->w * scale_x;
+    copy->dst.h = dstrect->h * scale_y;
+    copy->angle = angle;
+    if (center) {
+        copy->center.x = center->x * scale_x;
+        copy->center.y = center->y * scale_y;
+    } else {
+        copy->center.x = copy->dst.w * 0.5f;
+        copy->center.y = copy->dst.h * 0.5f;
+    }
+    copy->flip = flip;
+    cmd->data.draw.count = 1;
+    cmd->data.draw.texture = texture;
+    return 0;
+}
+
 typedef struct {
     float x;
     float y;
+    float u;
+    float v;
     SDL_Color color;
 } VFLASH_GeomVert;
 
@@ -391,12 +435,6 @@ static int VFLASH_QueueGeometry(SDL_Renderer *renderer, SDL_RenderCommand *cmd,
                                 int num_indices, int size_indices,
                                 float scale_x, float scale_y)
 {
-    (void)uv;
-    (void)uv_stride;
-    if (texture != NULL) {
-        SDL_SetError("textured SDL_RenderGeometry not supported");
-        return -1;
-    }
     int count = indices ? num_indices : num_vertices;
     if (count <= 0) {
         cmd->data.draw.count = 0;
@@ -408,7 +446,7 @@ static int VFLASH_QueueGeometry(SDL_Renderer *renderer, SDL_RenderCommand *cmd,
         return -1;
     }
     cmd->data.draw.count = (size_t)count;
-    cmd->data.draw.texture = NULL;
+    cmd->data.draw.texture = texture;
     for (int i = 0; i < count; ++i) {
         int vi = i;
         if (indices) {
@@ -420,6 +458,14 @@ static int VFLASH_QueueGeometry(SDL_Renderer *renderer, SDL_RenderCommand *cmd,
         const SDL_Color *c_p = (const SDL_Color *)((const uint8_t *)color + vi * color_stride);
         verts[i].x = xy_p[0] * scale_x;
         verts[i].y = xy_p[1] * scale_y;
+        if (texture && uv) {
+            const float *uv_p = (const float *)((const uint8_t *)uv + vi * uv_stride);
+            verts[i].u = uv_p[0];
+            verts[i].v = uv_p[1];
+        } else {
+            verts[i].u = 0.0f;
+            verts[i].v = 0.0f;
+        }
         verts[i].color = *c_p;
     }
     return 0;
@@ -592,9 +638,72 @@ static int VFLASH_RunCommandQueue(SDL_Renderer *renderer, SDL_RenderCommand *cmd
                             ? VFLASH_TEXTURE_OPAQUE
                             : VFLASH_TEXTURE_KEYED;
                     }
-                    vflash_renderer_draw_sub(nr, &tdata->native_tex,
-                                             copy->src.x, copy->src.y, copy->src.w, copy->src.h,
-                                             (int32_t)copy->dst.x, (int32_t)copy->dst.y);
+                    uint8_t alpha = (tex->blendMode == SDL_BLENDMODE_BLEND) ? tex->color.a : 255u;
+                    uint32_t color_mod = ((uint32_t)tex->color.r << 16) |
+                                         ((uint32_t)tex->color.g << 8) |
+                                         (uint32_t)tex->color.b;
+                    int32_t dw = (int32_t)(copy->dst.w + 0.5f);
+                    int32_t dh = (int32_t)(copy->dst.h + 0.5f);
+                    if (dw == copy->src.w && dh == copy->src.h &&
+                        alpha == 255u && color_mod == 0xFFFFFFu) {
+                        vflash_renderer_draw_sub(
+                            nr, &tdata->native_tex,
+                            copy->src.x, copy->src.y, copy->src.w, copy->src.h,
+                            (int32_t)copy->dst.x, (int32_t)copy->dst.y);
+                    } else {
+                        vflash_sprite_transform_t xf;
+                        xf.dx = (int32_t)copy->dst.x;
+                        xf.dy = (int32_t)copy->dst.y;
+                        xf.dw = dw;
+                        xf.dh = dh;
+                        xf.pivot_x = 0;
+                        xf.pivot_y = 0;
+                        xf.angle_deg16 = 0;
+                        xf.flip = VFLASH_FLIP_NONE;
+                        xf.alpha = alpha;
+                        xf.color_mod = color_mod;
+                        vflash_renderer_draw_sub_transformed(
+                            nr, &tdata->native_tex,
+                            copy->src.x, copy->src.y, copy->src.w, copy->src.h, &xf);
+                    }
+                }
+            }
+            break;
+        }
+
+        case SDL_RENDERCMD_COPY_EX: {
+            const VFLASH_CopyExCmd *copy = (const VFLASH_CopyExCmd *)((const uint8_t *)vertices + cmd->data.draw.first);
+            SDL_Texture *tex = cmd->data.draw.texture;
+            if (tex && tex->driverdata) {
+                VFLASH_TextureData *tdata = (VFLASH_TextureData *)tex->driverdata;
+                if (tdata->uploaded) {
+                    if (tdata->is_target) {
+                        tdata->native_tex.type = (tex->blendMode == SDL_BLENDMODE_NONE)
+                            ? VFLASH_TEXTURE_OPAQUE
+                            : VFLASH_TEXTURE_KEYED;
+                    }
+                    uint8_t alpha = (tex->blendMode == SDL_BLENDMODE_BLEND) ? tex->color.a : 255u;
+                    uint32_t color_mod = ((uint32_t)tex->color.r << 16) |
+                                         ((uint32_t)tex->color.g << 8) |
+                                         (uint32_t)tex->color.b;
+                    uint32_t vflip = VFLASH_FLIP_NONE;
+                    if (copy->flip & SDL_FLIP_HORIZONTAL) vflip |= VFLASH_FLIP_HORIZONTAL;
+                    if (copy->flip & SDL_FLIP_VERTICAL) vflip |= VFLASH_FLIP_VERTICAL;
+
+                    vflash_sprite_transform_t xf;
+                    xf.dx = (int32_t)(copy->dst.x + (copy->dst.x >= 0.0f ? 0.5f : -0.5f));
+                    xf.dy = (int32_t)(copy->dst.y + (copy->dst.y >= 0.0f ? 0.5f : -0.5f));
+                    xf.dw = (int32_t)(copy->dst.w + 0.5f);
+                    xf.dh = (int32_t)(copy->dst.h + 0.5f);
+                    xf.pivot_x = (int32_t)(copy->center.x + (copy->center.x >= 0.0f ? 0.5f : -0.5f));
+                    xf.pivot_y = (int32_t)(copy->center.y + (copy->center.y >= 0.0f ? 0.5f : -0.5f));
+                    xf.angle_deg16 = (int32_t)(copy->angle * 65536.0);
+                    xf.flip = vflip;
+                    xf.alpha = alpha;
+                    xf.color_mod = color_mod;
+                    vflash_renderer_draw_sub_transformed(
+                        nr, &tdata->native_tex,
+                        copy->src.x, copy->src.y, copy->src.w, copy->src.h, &xf);
                 }
             }
             break;
@@ -603,6 +712,36 @@ static int VFLASH_RunCommandQueue(SDL_Renderer *renderer, SDL_RenderCommand *cmd
         case SDL_RENDERCMD_GEOMETRY: {
             const VFLASH_GeomVert *verts = (const VFLASH_GeomVert *)((const uint8_t *)vertices + cmd->data.draw.first);
             size_t count = cmd->data.draw.count;
+            SDL_Texture *tex = cmd->data.draw.texture;
+            if (tex && tex->driverdata) {
+                VFLASH_TextureData *tdata = (VFLASH_TextureData *)tex->driverdata;
+                if (tdata->uploaded) {
+                    if (tdata->is_target) {
+                        tdata->native_tex.type = (tex->blendMode == SDL_BLENDMODE_NONE)
+                            ? VFLASH_TEXTURE_OPAQUE
+                            : VFLASH_TEXTURE_KEYED;
+                    }
+                    uint8_t base_a = (tex->blendMode == SDL_BLENDMODE_BLEND) ? tex->color.a : 255u;
+                    for (size_t i = 0; i + 2 < count; i += 3) {
+                        vflash_gpu_quad_vertex_t tri[3];
+                        for (int k = 0; k < 3; ++k) {
+                            tri[k].x = (int32_t)(verts[i + k].x * 65536.0f);
+                            tri[k].y = (int32_t)(verts[i + k].y * 65536.0f);
+                            tri[k].u = (int32_t)(verts[i + k].u * 65536.0f);
+                            tri[k].v = (int32_t)(verts[i + k].v * 65536.0f);
+                        }
+                        uint8_t va = verts[i].color.a;
+                        uint8_t alpha = (uint8_t)(((uint32_t)base_a * (uint32_t)va) / 255u);
+                        uint32_t mr = ((uint32_t)tex->color.r * (uint32_t)verts[i].color.r) / 255u;
+                        uint32_t mg = ((uint32_t)tex->color.g * (uint32_t)verts[i].color.g) / 255u;
+                        uint32_t mb = ((uint32_t)tex->color.b * (uint32_t)verts[i].color.b) / 255u;
+                        uint32_t color_mod = (mr << 16) | (mg << 8) | mb;
+                        vflash_renderer_draw_tri_tex(
+                            nr, &tdata->native_tex, tri, alpha, color_mod);
+                    }
+                }
+                break;
+            }
             int keyed = (nr->has_target && rdata->current_target &&
                          rdata->current_target->blendMode != SDL_BLENDMODE_NONE);
             for (size_t i = 0; i + 2 < count; i += 3) {
@@ -729,6 +868,7 @@ static int VFLASH_CreateRenderer(SDL_Renderer *renderer, SDL_Window *window, Uin
     renderer->QueueDrawLines = VFLASH_QueueDrawLines;
     renderer->QueueFillRects = VFLASH_QueueFillRects;
     renderer->QueueCopy = VFLASH_QueueCopy;
+    renderer->QueueCopyEx = VFLASH_QueueCopyEx;
     renderer->QueueGeometry = VFLASH_QueueGeometry;
     renderer->RunCommandQueue = VFLASH_RunCommandQueue;
     renderer->RenderReadPixels = VFLASH_RenderReadPixels;

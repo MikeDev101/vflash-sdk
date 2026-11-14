@@ -308,6 +308,55 @@ vflash_gpu_result_t vflash_renderer_upload_texture(vflash_renderer_t *r, vflash_
     return VFLASH_GPU_OK;
 }
 
+vflash_gpu_result_t vflash_renderer_update_texture(
+    vflash_renderer_t *r, vflash_texture_t *tex, const void *pixels,
+    uint32_t width, uint32_t height, vflash_texture_type_t type)
+{
+    if (!r || !r->initialized) return VFLASH_GPU_NOT_INITIALIZED;
+    if (!tex || !pixels || !width || !height) return VFLASH_GPU_INVALID;
+    if (!tex->id || tex->id != r->generation_id) return VFLASH_GPU_INVALID;
+    if (tex->width != width || tex->height != height) return VFLASH_GPU_INVALID;
+    if (type > VFLASH_TEXTURE_TRANSLUCENT) return VFLASH_GPU_INVALID;
+
+    vflash_framebuffer_t src_fb;
+    src_fb.pixels = (uint16_t *)(uintptr_t)pixels;
+    src_fb.width = width;
+    src_fb.height = height;
+    src_fb.stride = width;
+    src_fb.capacity_pixels = width * height;
+    src_fb.pixel_format = VFLASH_BGR555;
+
+    vflash_gpu_surface_t src_surf;
+    vflash_gpu_result_t res = vflash_gpu_surface_register(
+        &src_surf, &src_fb, (uint32_t)(uintptr_t)pixels, 1);
+    if (res) return res;
+
+    vflash_gpu_clip(&r->surf_a, 0, 0, (int32_t)r->config.surface_width,
+                    (int32_t)r->config.surface_height);
+    vflash_gpu_clip(&r->surf_b, 0, 0, (int32_t)r->config.surface_width,
+                    (int32_t)r->config.surface_height);
+
+    res = vflash_gpu_upload(&r->gpu, &r->surf_a, &src_surf, 0, 0,
+                            (int32_t)width, (int32_t)height,
+                            (int32_t)tex->atlas_x, (int32_t)tex->atlas_y);
+    if (!res) {
+        res = vflash_gpu_upload(&r->gpu, &r->surf_b, &src_surf, 0, 0,
+                                (int32_t)width, (int32_t)height,
+                                (int32_t)tex->atlas_x, (int32_t)tex->atlas_y);
+    }
+
+    int32_t ox, oy, bw, bh;
+    active_origin_bounds(r, &ox, &oy, &bw, &bh);
+    vflash_gpu_clip(&r->surf_a, ox + r->clip_x, oy + r->clip_y,
+                    r->clip_w, r->clip_h);
+    vflash_gpu_clip(&r->surf_b, ox + r->clip_x, oy + r->clip_y,
+                    r->clip_w, r->clip_h);
+    if (res) return res;
+
+    tex->type = type;
+    return VFLASH_GPU_OK;
+}
+
 vflash_gpu_result_t vflash_renderer_create_target(vflash_renderer_t *r, vflash_texture_t *tex,
                                                  uint32_t width, uint32_t height,
                                                  vflash_texture_type_t type)
@@ -545,6 +594,203 @@ vflash_gpu_result_t vflash_renderer_draw(vflash_renderer_t *r, const vflash_text
 {
     if (!tex) return VFLASH_GPU_INVALID;
     return vflash_renderer_draw_sub(r, tex, 0, 0, (int32_t)tex->width, (int32_t)tex->height, dx, dy);
+}
+
+static const uint32_t sin_lut_q16[91] = {
+    0, 1144, 2287, 3430, 4572, 5712, 6850, 7987,
+    9121, 10252, 11380, 12505, 13626, 14742, 15855, 16962,
+    18064, 19161, 20252, 21336, 22415, 23486, 24550, 25607,
+    26656, 27697, 28729, 29753, 30767, 31772, 32768, 33754,
+    34729, 35693, 36647, 37590, 38521, 39441, 40348, 41243,
+    42126, 42995, 43852, 44695, 45525, 46341, 47143, 47930,
+    48703, 49461, 50203, 50931, 51643, 52339, 53020, 53684,
+    54332, 54963, 55578, 56175, 56756, 57319, 57865, 58393,
+    58903, 59396, 59870, 60326, 60764, 61183, 61584, 61966,
+    62328, 62672, 62997, 63303, 63589, 63856, 64104, 64332,
+    64540, 64729, 64898, 65048, 65177, 65287, 65376, 65446,
+    65496, 65526, 65536
+};
+
+static int32_t sin_q16(int32_t deg16)
+{
+    const int32_t full = 360 << 16;
+    int32_t a = deg16 % full;
+    if (a < 0) a += full;
+    int32_t neg = 0;
+    if (a >= (180 << 16)) {
+        a -= (180 << 16);
+        neg = 1;
+    }
+    if (a > (90 << 16)) {
+        a = (180 << 16) - a;
+    }
+    int32_t idx = a >> 16;
+    if (idx >= 90) return neg ? -65536 : 65536;
+    int32_t frac = a & 0xFFFF;
+    int32_t v0 = (int32_t)sin_lut_q16[idx];
+    int32_t v1 = (int32_t)sin_lut_q16[idx + 1];
+    int32_t res = v0 + (((v1 - v0) * frac) >> 16);
+    return neg ? -res : res;
+}
+
+static void sincos_q16(int32_t deg16, int32_t *out_sin, int32_t *out_cos)
+{
+    *out_sin = sin_q16(deg16);
+    *out_cos = sin_q16(deg16 + (90 << 16));
+}
+
+static uint8_t log2_pow2_min8(uint32_t dim)
+{
+    uint8_t k = 0;
+    while ((8u << k) < dim && k < 7u) {
+        k++;
+    }
+    return k;
+}
+
+static vflash_gpu_texture_format_t tex_gpu_format(const vflash_texture_t *tex)
+{
+    return (tex->type == VFLASH_TEXTURE_TRANSLUCENT)
+        ? VFLASH_GPU_TEXTURE_ABGR4444
+        : VFLASH_GPU_TEXTURE_BGR555_KEY;
+}
+
+vflash_gpu_result_t vflash_renderer_draw_sub_transformed(
+    vflash_renderer_t *r, const vflash_texture_t *tex,
+    int32_t sx, int32_t sy, int32_t sw, int32_t sh,
+    const vflash_sprite_transform_t *xform)
+{
+    if (!r || !r->initialized) return VFLASH_GPU_NOT_INITIALIZED;
+    if (!tex || !tex->id || tex->id != r->generation_id || !xform) {
+        return VFLASH_GPU_INVALID;
+    }
+    if (sx < 0 || sy < 0 || sw < 0 || sh < 0 ||
+        xform->dw < 0 || xform->dh < 0) {
+        return VFLASH_GPU_INVALID;
+    }
+    if ((uint32_t)sx + (uint32_t)sw > tex->width ||
+        (uint32_t)sy + (uint32_t)sh > tex->height) {
+        return VFLASH_GPU_INVALID;
+    }
+    if (sw == 0 || sh == 0 || xform->dw == 0 || xform->dh == 0 ||
+        xform->alpha == 0u) {
+        return VFLASH_GPU_OK;
+    }
+
+    // Identity fast path via Zevio 2D engine
+    if (xform->angle_deg16 == 0 && xform->flip == VFLASH_FLIP_NONE &&
+        xform->dw == sw && xform->dh == sh &&
+        xform->alpha == 255u && (xform->color_mod & 0xFFFFFFu) == 0xFFFFFFu) {
+        return vflash_renderer_draw_sub(r, tex, sx, sy, sw, sh,
+                                        xform->dx, xform->dy);
+    }
+
+    int32_t ox, oy, bw, bh;
+    active_origin_bounds(r, &ox, &oy, &bw, &bh);
+    (void)bw;
+    (void)bh;
+
+    uint8_t log2_tw = log2_pow2_min8((uint32_t)sw);
+    uint8_t log2_th = log2_pow2_min8((uint32_t)sh);
+
+    // Half-texel inset UVs in Q16.16 to prevent atlas neighbor bleeding
+    int32_t u_min = (int32_t)(4096u >> log2_tw);
+    int32_t u_max = (sw > 1)
+        ? (int32_t)(((uint32_t)(sw << 13) - 4096u) >> log2_tw)
+        : u_min;
+    int32_t v_min = (int32_t)(4096u >> log2_th);
+    int32_t v_max = (sh > 1)
+        ? (int32_t)(((uint32_t)(sh << 13) - 4096u) >> log2_th)
+        : v_min;
+
+    int32_t u_l = (xform->flip & VFLASH_FLIP_HORIZONTAL) ? u_max : u_min;
+    int32_t u_r = (xform->flip & VFLASH_FLIP_HORIZONTAL) ? u_min : u_max;
+    int32_t v_t = (xform->flip & VFLASH_FLIP_VERTICAL) ? v_max : v_min;
+    int32_t v_b = (xform->flip & VFLASH_FLIP_VERTICAL) ? v_min : v_max;
+
+    int32_t lx0 = -xform->pivot_x;
+    int32_t ly0 = -xform->pivot_y;
+    int32_t lx1 = xform->dw - xform->pivot_x;
+    int32_t ly1 = xform->dh - xform->pivot_y;
+
+    int32_t cx_q16 = (ox + xform->dx + xform->pivot_x) << 16;
+    int32_t cy_q16 = (oy + xform->dy + xform->pivot_y) << 16;
+
+    int32_t s_q16 = 0, c_q16 = 65536;
+    if (xform->angle_deg16 != 0) {
+        sincos_q16(xform->angle_deg16, &s_q16, &c_q16);
+    }
+
+    const int32_t lx[4] = { lx0, lx1, lx1, lx0 };
+    const int32_t ly[4] = { ly0, ly0, ly1, ly1 };
+    const int32_t uv_u[4] = { u_l, u_r, u_r, u_l };
+    const int32_t uv_v[4] = { v_t, v_t, v_b, v_b };
+
+    vflash_gpu_quad_vertex_t verts[4];
+    for (int i = 0; i < 4; i++) {
+        verts[i].x = cx_q16 + lx[i] * c_q16 - ly[i] * s_q16;
+        verts[i].y = cy_q16 + lx[i] * s_q16 + ly[i] * c_q16;
+        verts[i].u = uv_u[i];
+        verts[i].v = uv_v[i];
+    }
+
+    int32_t ax = (int32_t)tex->atlas_x + sx;
+    int32_t ay = (int32_t)tex->atlas_y + sy;
+    vflash_gpu_result_t res = vflash_gpu_draw_quad_tex(
+        &r->gpu, r->current, tex_gpu_format(tex), ax, ay, log2_tw, log2_th,
+        verts, xform->alpha, xform->color_mod);
+    if (!res && r->has_target) {
+        r->target_op_overflow = 1;
+    }
+    return res;
+}
+
+vflash_gpu_result_t vflash_renderer_draw_transformed(
+    vflash_renderer_t *r, const vflash_texture_t *tex,
+    const vflash_sprite_transform_t *xform)
+{
+    if (!tex) return VFLASH_GPU_INVALID;
+    return vflash_renderer_draw_sub_transformed(
+        r, tex, 0, 0, (int32_t)tex->width, (int32_t)tex->height, xform);
+}
+
+vflash_gpu_result_t vflash_renderer_draw_tri_tex(
+    vflash_renderer_t *r, const vflash_texture_t *tex,
+    const vflash_gpu_quad_vertex_t verts[3],
+    uint8_t alpha, uint32_t color_mod)
+{
+    if (!r || !r->initialized) return VFLASH_GPU_NOT_INITIALIZED;
+    if (!tex || !tex->id || tex->id != r->generation_id || !verts) {
+        return VFLASH_GPU_INVALID;
+    }
+    if (alpha == 0u) return VFLASH_GPU_OK;
+
+    int32_t ox, oy, bw, bh;
+    active_origin_bounds(r, &ox, &oy, &bw, &bh);
+    (void)bw;
+    (void)bh;
+
+    uint8_t log2_tw = log2_pow2_min8(tex->width);
+    uint8_t log2_th = log2_pow2_min8(tex->height);
+    int64_t tw_scale = ((int64_t)tex->width << 16) / (int64_t)(8u << log2_tw);
+    int64_t th_scale = ((int64_t)tex->height << 16) / (int64_t)(8u << log2_th);
+
+    vflash_gpu_quad_vertex_t tri[3];
+    for (int i = 0; i < 3; i++) {
+        tri[i].x = verts[i].x + (ox << 16);
+        tri[i].y = verts[i].y + (oy << 16);
+        tri[i].u = (int32_t)(((int64_t)verts[i].u * tw_scale) >> 16);
+        tri[i].v = (int32_t)(((int64_t)verts[i].v * th_scale) >> 16);
+    }
+
+    vflash_gpu_result_t res = vflash_gpu_draw_tri_tex(
+        &r->gpu, r->current, tex_gpu_format(tex),
+        (int32_t)tex->atlas_x, (int32_t)tex->atlas_y,
+        log2_tw, log2_th, tri, alpha, color_mod);
+    if (!res && r->has_target) {
+        r->target_op_overflow = 1;
+    }
+    return res;
 }
 
 vflash_gpu_result_t vflash_renderer_present(vflash_renderer_t *r)

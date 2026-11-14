@@ -300,6 +300,69 @@ vflash_gpu_result_t vflash_gpu_draw_sprite_ex(
     int32_t w, int32_t h, int32_t dx, int32_t dy);
 
 //
+// 2D textured vertex in Q16.16 fixed-point coordinates.
+//
+// x: Screen X coordinate (Q16.16 fixed-point pixels).
+// y: Screen Y coordinate (Q16.16 fixed-point pixels).
+// u: Normalized texture U coordinate (Q16.16, 0x10000 = 1.0).
+// v: Normalized texture V coordinate (Q16.16, 0x10000 = 1.0).
+//
+typedef struct {
+    int32_t x;
+    int32_t y;
+    int32_t u;
+    int32_t v;
+} vflash_gpu_quad_vertex_t;
+
+//
+// Draw a hardware-accelerated textured quad via the Zevio 3D engine in
+// orthographic screen space.
+//
+// gpu:     Initialized GPU instance.
+// surface: Target tiled surface containing both atlas and viewport.
+// format:  Texture encoding format (BGR555_KEY or ABGR4444).
+// sx:      Source atlas origin X coordinate in pixels.
+// sy:      Source atlas origin Y coordinate in pixels.
+// log2_tw: Texture width exponent (width = 8 << log2_tw, range 0..7).
+// log2_th: Texture height exponent (height = 8 << log2_th, range 0..7).
+// verts:   Four quad corners in clockwise/CCW order (drawn as 0-1-2, 0-2-3).
+// alpha:   Global opacity (0..255, 255 = opaque).
+// rgb_mod: 24-bit RGB color modulation (0x00RRGGBB, 0x00FFFFFF = untinted).
+//
+// Returns VFLASH_GPU_OK on success, or an error code.
+//
+vflash_gpu_result_t vflash_gpu_draw_quad_tex(
+    vflash_gpu_t *gpu, vflash_gpu_surface_t *surface,
+    vflash_gpu_texture_format_t format, int32_t sx, int32_t sy,
+    uint8_t log2_tw, uint8_t log2_th,
+    const vflash_gpu_quad_vertex_t verts[4],
+    uint8_t alpha, uint32_t rgb_mod);
+
+//
+// Draw a hardware-accelerated textured triangle via the Zevio 3D engine in
+// orthographic screen space.
+//
+// gpu:     Initialized GPU instance.
+// surface: Target tiled surface containing both atlas and viewport.
+// format:  Texture encoding format (BGR555_KEY or ABGR4444).
+// sx:      Source atlas origin X coordinate in pixels.
+// sy:      Source atlas origin Y coordinate in pixels.
+// log2_tw: Texture width exponent (width = 8 << log2_tw, range 0..7).
+// log2_th: Texture height exponent (height = 8 << log2_th, range 0..7).
+// verts:   Three triangle vertices.
+// alpha:   Global opacity (0..255, 255 = opaque).
+// rgb_mod: 24-bit RGB color modulation (0x00RRGGBB, 0x00FFFFFF = untinted).
+//
+// Returns VFLASH_GPU_OK on success, or an error code.
+//
+vflash_gpu_result_t vflash_gpu_draw_tri_tex(
+    vflash_gpu_t *gpu, vflash_gpu_surface_t *surface,
+    vflash_gpu_texture_format_t format, int32_t sx, int32_t sy,
+    uint8_t log2_tw, uint8_t log2_th,
+    const vflash_gpu_quad_vertex_t verts[3],
+    uint8_t alpha, uint32_t rgb_mod);
+
+//
 // Register a linear framebuffer as a GPU surface.
 //
 // surface:          Output surface descriptor.

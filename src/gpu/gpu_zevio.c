@@ -14,7 +14,7 @@ vflash_gpu_result_t gpu_zevio_wait(vflash_gpu_t *g)
     if (owner!=g) return VFLASH_GPU_NOT_INITIALIZED;
     return poisoned ? VFLASH_GPU_TIMEOUT:VFLASH_GPU_OK;
 }
-static uint32_t commands[16] __attribute__((aligned(64)));
+static uint32_t commands[80] __attribute__((aligned(64)));
 static int cpu_safe(void)
 {
     uint32_t s;
@@ -120,6 +120,182 @@ vflash_gpu_result_t gpu_zevio_sprite_ex(vflash_gpu_t *g,vflash_gpu_surface_t *s,
     commands[12]=0x95000000;
     return submit(g,s,13);
 }
+
+static inline uint16_t q16_to_f16(int32_t q)
+{
+    if (q == 0) return 0;
+    uint16_t sign = (q < 0) ? 0x8000u : 0u;
+    uint32_t mag = (q < 0) ? (uint32_t)(-q) : (uint32_t)q;
+    int highest = 31 - __builtin_clz(mag);
+    int exp = highest + 15;
+    if (exp < 0) return sign;
+    uint32_t mant;
+    if (highest >= 9) {
+        uint32_t shift = (uint32_t)(highest - 9);
+        mant = (mag >> shift) & 0x1FFu;
+        if (shift > 0 && ((mag >> (shift - 1u)) & 1u)) {
+            mant++;
+            if (mant == 512u) {
+                mant = 0u;
+                exp++;
+            }
+        }
+    } else {
+        mant = (mag << (9 - highest)) & 0x1FFu;
+    }
+    if (exp > 63) return (uint16_t)(sign | 0x7FFFu);
+    return (uint16_t)(sign | ((uint32_t)exp << 9) | mant);
+}
+
+static inline void emit_vtx_q16(uint32_t *buf, uint32_t *idx,
+                                const vflash_gpu_quad_vertex_t *v)
+{
+    uint16_t fx = q16_to_f16(v->x);
+    uint16_t fy = q16_to_f16(v->y);
+    uint16_t fu = q16_to_f16(v->u);
+    uint16_t fv = q16_to_f16(v->v);
+    buf[(*idx)++] = ((uint32_t)fy << 16) | (uint32_t)fx;
+    buf[(*idx)++] = 0x3E00u; // z = 1.0 in Zevio f16
+    buf[(*idx)++] = ((uint32_t)fv << 16) | (uint32_t)fu;
+}
+
+static vflash_gpu_result_t submit_3d_tex(
+    vflash_gpu_t *g, vflash_gpu_surface_t *s,
+    vflash_gpu_texture_format_t fmt, int32_t sx, int32_t sy,
+    uint8_t log2_tw, uint8_t log2_th,
+    const vflash_gpu_quad_vertex_t *verts, uint32_t is_quad,
+    uint8_t alpha, uint32_t rgb_mod)
+{
+    if (owner != g) return VFLASH_GPU_NOT_INITIALIZED;
+    if (poisoned) return VFLASH_GPU_TIMEOUT;
+    if (fmt != VFLASH_GPU_TEXTURE_BGR555_KEY &&
+        fmt != VFLASH_GPU_TEXTURE_ABGR4444) {
+        return VFLASH_GPU_INVALID;
+    }
+    if (!gpu_tiled_valid(s) || !verts) return VFLASH_GPU_INVALID;
+    if (sx < 0 || sy < 0 || log2_tw > 7u || log2_th > 7u) {
+        return VFLASH_GPU_INVALID;
+    }
+    if (s->clip_w <= 0 || s->clip_h <= 0) return VFLASH_GPU_OK;
+    int32_t cl = s->clip_x;
+    int32_t ct = s->clip_y;
+    int32_t cr = s->clip_x + s->clip_w;
+    int32_t cb = s->clip_y + s->clip_h;
+    if (cl < 0) cl = 0;
+    if (ct < 0) ct = 0;
+    if (cr > (int32_t)s->fb.width) cr = (int32_t)s->fb.width;
+    if (cb > (int32_t)s->fb.height) cb = (int32_t)s->fb.height;
+    if (cl >= cr || ct >= cb) return VFLASH_GPU_OK;
+
+    uint32_t n = 0;
+    commands[n++] = 0x81000000u;
+    commands[n++] = 0x82000000u | ((uint32_t)ct << 12) | (uint32_t)cl;
+    commands[n++] = 0x83000000u | ((uint32_t)(cb - 1) << 12) |
+                    (uint32_t)(cr - 1);
+    commands[n++] = 0x1E000000u; // Disable depth test/write
+
+    if ((rgb_mod & 0xFFFFFFu) == 0xFFFFFFu) {
+        commands[n++] = 0x84000000u;
+    } else {
+        uint32_t r5 = ((rgb_mod >> 16) & 0xFFu) >> 3;
+        uint32_t g5 = ((rgb_mod >> 8) & 0xFFu) >> 3;
+        uint32_t b5 = (rgb_mod & 0xFFu) >> 3;
+        uint32_t bgr555 = (b5 << 10) | (g5 << 5) | r5;
+        commands[n++] = 0x84000001u;
+        commands[n++] = 0x206C0003u;
+        commands[n++] = 0u;
+        commands[n++] = 0u;
+        commands[n++] = 0x20700001u;
+        commands[n++] = bgr555;
+    }
+
+    if (alpha == 255u) {
+        commands[n++] = 0x88000000u;
+        commands[n++] = 0x8DFFFFFFu;
+    } else {
+        uint32_t k = ((uint32_t)alpha << 16) |
+                     ((uint32_t)alpha << 8) | (uint32_t)alpha;
+        commands[n++] = 0x88000002u;
+        commands[n++] = 0x8D000000u | k;
+    }
+
+    commands[n++] = ((fmt == VFLASH_GPU_TEXTURE_ABGR4444)
+                     ? 0x86000100u : 0x86000000u) |
+                    ((uint32_t)log2_th << 3) | (uint32_t)log2_tw;
+    commands[n++] = 0x87000000u |
+                    (((uint32_t)sy & 0xFFFu) << 12) |
+                    ((uint32_t)sx & 0xFFFu);
+
+    // Orthographic 3D pipeline: Scale=1, Mat1=I, T1=0, Mat2=I, T2=0, Near=0
+    commands[n++] = 0x203C0003u;
+    commands[n++] = (0x3E00u << 16) | 0x3E00u;
+    commands[n++] = 0x3E00u;
+    commands[n++] = 0x20400009u;
+    commands[n++] = 0x3E00u;
+    commands[n++] = 0u;
+    commands[n++] = 0x3E00u;
+    commands[n++] = 0u;
+    commands[n++] = 0x3E00u;
+    commands[n++] = 0x204C0003u;
+    commands[n++] = 0u;
+    commands[n++] = 0u;
+    commands[n++] = 0x20500009u;
+    commands[n++] = 0x3E00u;
+    commands[n++] = 0u;
+    commands[n++] = 0x3E00u;
+    commands[n++] = 0u;
+    commands[n++] = 0x3E00u;
+    commands[n++] = 0x205C0003u;
+    commands[n++] = 0u;
+    commands[n++] = 0u;
+    commands[n++] = 0x20740001u;
+    commands[n++] = 0u;
+    commands[n++] = 0x20780002u;
+    commands[n++] = (0x3E00u << 16) | 0x3E00u;
+
+    if (is_quad) {
+        commands[n++] = 0x44100006u;
+        emit_vtx_q16(commands, &n, &verts[0]);
+        emit_vtx_q16(commands, &n, &verts[1]);
+        emit_vtx_q16(commands, &n, &verts[2]);
+        emit_vtx_q16(commands, &n, &verts[0]);
+        emit_vtx_q16(commands, &n, &verts[2]);
+        emit_vtx_q16(commands, &n, &verts[3]);
+    } else {
+        commands[n++] = 0x44100003u;
+        emit_vtx_q16(commands, &n, &verts[0]);
+        emit_vtx_q16(commands, &n, &verts[1]);
+        emit_vtx_q16(commands, &n, &verts[2]);
+    }
+
+    commands[n++] = 0x84000000u;
+    commands[n++] = 0x88000000u;
+    commands[n++] = 0x8DFFFFFFu;
+    commands[n++] = 0x95000000u;
+    return submit(g, s, n);
+}
+
+vflash_gpu_result_t gpu_zevio_quad_tex(
+    vflash_gpu_t *g, vflash_gpu_surface_t *s,
+    vflash_gpu_texture_format_t fmt, int32_t sx, int32_t sy,
+    uint8_t log2_tw, uint8_t log2_th,
+    const vflash_gpu_quad_vertex_t verts[4],
+    uint8_t alpha, uint32_t rgb_mod)
+{
+    return submit_3d_tex(g, s, fmt, sx, sy, log2_tw, log2_th,
+                         verts, 1u, alpha, rgb_mod);
+}
+
+vflash_gpu_result_t gpu_zevio_tri_tex(
+    vflash_gpu_t *g, vflash_gpu_surface_t *s,
+    vflash_gpu_texture_format_t fmt, int32_t sx, int32_t sy,
+    uint8_t log2_tw, uint8_t log2_th,
+    const vflash_gpu_quad_vertex_t verts[3],
+    uint8_t alpha, uint32_t rgb_mod)
+{
+    return submit_3d_tex(g, s, fmt, sx, sy, log2_tw, log2_th,
+                         verts, 0u, alpha, rgb_mod);
+}
 vflash_gpu_result_t gpu_zevio_upload(vflash_gpu_t *g,vflash_gpu_surface_t *d,const vflash_gpu_surface_t *s,int32_t sx,int32_t sy,int32_t w,int32_t h,int32_t dx,int32_t dy)
 {
     if (owner!=g) return VFLASH_GPU_NOT_INITIALIZED;
@@ -187,6 +363,28 @@ vflash_gpu_result_t gpu_zevio_copy(vflash_gpu_t *g,vflash_gpu_surface_t *s,int32
 {(void)g;(void)s;(void)x;(void)y;(void)w;(void)h;(void)dx;(void)dy;return VFLASH_GPU_UNSUPPORTED;}
 vflash_gpu_result_t gpu_zevio_sprite_ex(vflash_gpu_t *g,vflash_gpu_surface_t *s,vflash_gpu_texture_format_t fmt,int32_t x,int32_t y,int32_t w,int32_t h,int32_t dx,int32_t dy)
 {(void)g;(void)s;(void)fmt;(void)x;(void)y;(void)w;(void)h;(void)dx;(void)dy;return VFLASH_GPU_UNSUPPORTED;}
+vflash_gpu_result_t gpu_zevio_quad_tex(
+    vflash_gpu_t *g, vflash_gpu_surface_t *s,
+    vflash_gpu_texture_format_t fmt, int32_t sx, int32_t sy,
+    uint8_t log2_tw, uint8_t log2_th,
+    const vflash_gpu_quad_vertex_t verts[4],
+    uint8_t alpha, uint32_t rgb_mod)
+{
+    (void)g; (void)s; (void)fmt; (void)sx; (void)sy;
+    (void)log2_tw; (void)log2_th; (void)verts; (void)alpha; (void)rgb_mod;
+    return VFLASH_GPU_UNSUPPORTED;
+}
+vflash_gpu_result_t gpu_zevio_tri_tex(
+    vflash_gpu_t *g, vflash_gpu_surface_t *s,
+    vflash_gpu_texture_format_t fmt, int32_t sx, int32_t sy,
+    uint8_t log2_tw, uint8_t log2_th,
+    const vflash_gpu_quad_vertex_t verts[3],
+    uint8_t alpha, uint32_t rgb_mod)
+{
+    (void)g; (void)s; (void)fmt; (void)sx; (void)sy;
+    (void)log2_tw; (void)log2_th; (void)verts; (void)alpha; (void)rgb_mod;
+    return VFLASH_GPU_UNSUPPORTED;
+}
 vflash_gpu_result_t gpu_zevio_upload(vflash_gpu_t *g,vflash_gpu_surface_t *d,const vflash_gpu_surface_t *s,int32_t sx,int32_t sy,int32_t w,int32_t h,int32_t dx,int32_t dy)
 {(void)g;(void)d;(void)s;(void)sx;(void)sy;(void)w;(void)h;(void)dx;(void)dy;return VFLASH_GPU_UNSUPPORTED;}
 vflash_gpu_result_t gpu_zevio_present_view(vflash_gpu_t *g,vflash_gpu_surface_t *s,uint32_t w,uint32_t h,int32_t x,int32_t y)

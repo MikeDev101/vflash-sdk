@@ -218,6 +218,22 @@ vflash_gpu_result_t vflash_renderer_upload_texture(vflash_renderer_t *r,
                                                    vflash_texture_type_t type);
 
 //
+// Re-upload pixel data into an existing texture's atlas slot in-place.
+//
+// r:      Initialized renderer instance.
+// tex:    Existing uploaded texture handle with matching dimensions.
+// pixels: Source 16-bit pixel buffer matching type encoding.
+// width:  Texture width in pixels (must match tex->width).
+// height: Texture height in pixels (must match tex->height).
+// type:   Texture blending/keying mode.
+//
+// Returns VFLASH_GPU_OK on success, or an error code.
+//
+vflash_gpu_result_t vflash_renderer_update_texture(
+    vflash_renderer_t *r, vflash_texture_t *tex, const void *pixels,
+    uint32_t width, uint32_t height, vflash_texture_type_t type);
+
+//
 // Draw a full texture onto the active playfield at (dx, dy).
 //
 // r:   Initialized renderer instance.
@@ -250,6 +266,92 @@ vflash_gpu_result_t vflash_renderer_draw_sub(vflash_renderer_t *r,
                                              int32_t sx, int32_t sy,
                                              int32_t w, int32_t h,
                                              int32_t dx, int32_t dy);
+
+//
+// Flip flags for hardware-accelerated transformed sprite drawing.
+//
+#define VFLASH_FLIP_NONE       0x00u
+#define VFLASH_FLIP_HORIZONTAL 0x01u
+#define VFLASH_FLIP_VERTICAL   0x02u
+
+//
+// Parameters for hardware-accelerated sprite scaling, rotation, flipping,
+// and blending via vflash_renderer_draw_transformed().
+//
+// dx:          Destination top-left X coordinate (pixels).
+// dy:          Destination top-left Y coordinate (pixels).
+// dw:          Destination width in pixels (>= 0; 0 draws nothing).
+// dh:          Destination height in pixels (>= 0; 0 draws nothing).
+// pivot_x:     Rotation pivot X relative to destination rect (pixels).
+// pivot_y:     Rotation pivot Y relative to destination rect (pixels).
+// angle_deg16: Clockwise rotation angle in Q16.16 fixed-point degrees.
+// flip:        Bitmask of VFLASH_FLIP_HORIZONTAL / VFLASH_FLIP_VERTICAL.
+// alpha:       Global opacity (0..255, 255 = opaque).
+// color_mod:   24-bit RGB color tint (0x00RRGGBB, 0x00FFFFFF = untinted).
+//
+typedef struct {
+    int32_t dx;
+    int32_t dy;
+    int32_t dw;
+    int32_t dh;
+    int32_t pivot_x;
+    int32_t pivot_y;
+    int32_t angle_deg16;
+    uint32_t flip;
+    uint8_t alpha;
+    uint32_t color_mod;
+} vflash_sprite_transform_t;
+
+//
+// Draw a sub-rectangle of a texture with hardware-accelerated scaling,
+// rotation, flipping, and alpha/color modulation.
+//
+// r:     Initialized renderer instance.
+// tex:   Uploaded texture handle.
+// sx:    Source X offset inside texture.
+// sy:    Source Y offset inside texture.
+// sw:    Source sub-rectangle width in pixels.
+// sh:    Source sub-rectangle height in pixels.
+// xform: Transformation and blending parameters.
+//
+// Returns VFLASH_GPU_OK on success, or an error code.
+//
+vflash_gpu_result_t vflash_renderer_draw_sub_transformed(
+    vflash_renderer_t *r, const vflash_texture_t *tex,
+    int32_t sx, int32_t sy, int32_t sw, int32_t sh,
+    const vflash_sprite_transform_t *xform);
+
+//
+// Draw a full texture with hardware-accelerated scaling, rotation, flipping,
+// and alpha/color modulation.
+//
+// r:     Initialized renderer instance.
+// tex:   Uploaded texture handle.
+// xform: Transformation and blending parameters.
+//
+// Returns VFLASH_GPU_OK on success, or an error code.
+//
+vflash_gpu_result_t vflash_renderer_draw_transformed(
+    vflash_renderer_t *r, const vflash_texture_t *tex,
+    const vflash_sprite_transform_t *xform);
+
+//
+// Draw a textured triangle onto the active playfield or render target.
+// Coordinates (x, y) are in Q16.16 pixels; (u, v) are Q16.16 normalized
+// coordinates in [0, 0x10000] relative to the full texture dimensions.
+//
+// r:         Initialized renderer instance.
+// tex:       Uploaded texture handle.
+// verts:     Three triangle vertices.
+// alpha:     Global opacity (0..255, 255 = opaque).
+// color_mod: 24-bit RGB color tint (0x00RRGGBB, 0x00FFFFFF = untinted).
+//
+// Returns VFLASH_GPU_OK on success, or an error code.
+//
+vflash_gpu_result_t vflash_renderer_draw_tri_tex(
+    vflash_renderer_t *r, const vflash_texture_t *tex,
+    const vflash_gpu_quad_vertex_t verts[3],
+    uint8_t alpha, uint32_t color_mod);
 
 //
 // Allocate an offscreen render-target texture in the renderer atlas and clear

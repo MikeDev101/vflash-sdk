@@ -204,3 +204,42 @@ and D1 readback with MMU off and on. It removes CPU conversion for that
 experimental presentation path. The initial native.c one-tile benchmark above
 still performs its explicitly documented CPU presentation copy. Restricted Zevio HAL initialization and tiled-surface registration are now
 available; see the [native HAL guide](gpu-native-hal.md) for current limits. D2 does not supply independent surface bases.
+
+## Hardware-accelerated sprite transformations and textured geometry
+
+The Zevio 2D command path (`0xD4`/`0xD8`) performs unscaled, axis-aligned
+1:1 blits only. Arbitrary scaling, rotation, flipping, alpha modulation,
+RGB tinting, and textured triangles are accelerated through the Zevio 3D
+engine (`0x44` / `GE_CMD_MODEL_VTX`) using integer Q16.16 fixed-point
+math, a 91-entry quarter-wave sine LUT (`sin_lut_q16`), and `__builtin_clz`
+conversion (`q16_to_f16`) to Zevio's 1-6-9 `f16` format (`0x3E00 = 1.0`).
+
+- **Low-level GPU API (`<vflash/gpu.h>`)**:
+  - `vflash_gpu_draw_quad_tex()` and `vflash_gpu_draw_tri_tex()` accept
+    `vflash_gpu_quad_vertex_t` vertices (`x_q16`, `y_q16`, `u_q16`, `v_q16`),
+    optional global `alpha` (`0..255`), and optional ambient RGB tint
+    (`tint_rgb`).
+  - `u_q16`/`v_q16` use normalized `[0, 1]` Q16.16 coordinates; the
+    renderer applies a half-texel inset (`0.5/tw .. (w - 0.5)/tw`) so
+    bilinear filtering (`filtered()`) does not bleed adjacent atlas slots.
+- **High-level renderer API (`<vflash/renderer.h>`)**:
+  - `vflash_sprite_transform_t`, `vflash_flip_t` (`VFLASH_FLIP_NONE`,
+    `VFLASH_FLIP_HORIZONTAL`, `VFLASH_FLIP_VERTICAL`),
+    `vflash_renderer_draw_transformed()`,
+    `vflash_renderer_draw_sub_transformed()`, and
+    `vflash_renderer_draw_tri_tex()`.
+  - `vflash_renderer_update_texture()` updates an existing atlas slot
+    in-place without leaking atlas capacity.
+  - Note: `VFLASH_TEX_OPAQUE` (`0x00` alpha-keyed `BGR555`) treats pixel
+    `0x0000` as transparent in the Zevio 3D texture path.
+- **SDL2 (`SDL_vflashrender.c`)**:
+  - `SDL_RenderCopyEx()` maps directly to
+    `vflash_renderer_draw_sub_transformed()`, including `angle`, `center`,
+    `SDL_FLIP_HORIZONTAL`/`SDL_FLIP_VERTICAL`, `SDL_SetTextureAlphaMod`,
+    and `SDL_SetTextureColorMod`.
+  - `SDL_RenderCopy()` fast-paths 1:1 untinted opaque draws to 2D `0xD4`
+    and routes scaled/tinted/translucent draws to the 3D quad path.
+  - `SDL_RenderGeometry()` supports both untextured solid-color triangles
+    and textured triangles (`vflash_renderer_draw_tri_tex()`).
+  - `SDL_UpdateTexture()` reuses the existing atlas slot via
+    `vflash_renderer_update_texture()` when already uploaded.
