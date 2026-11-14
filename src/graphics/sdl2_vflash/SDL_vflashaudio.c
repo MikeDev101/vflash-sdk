@@ -79,8 +79,10 @@ void VFLASH_AudioPump(void)
     }
 
     Uint32 avail = vflash_audio_get_available_bytes();
+    int packets = 0;
 
-    while (avail >= packet_size) {
+    while (avail >= packet_size && packets < 2) {
+        packets++;
         SDL_AudioCallback callback = s_current_audio_device->callbackspec.callback;
         int stream_len = (int)s_current_audio_device->callbackspec.size;
         if (stream_len <= 0 || (size_t)stream_len > sizeof(s_work_buffer)) {
