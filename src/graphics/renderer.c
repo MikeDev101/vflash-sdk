@@ -38,9 +38,15 @@ vflash_gpu_result_t vflash_renderer_init(vflash_renderer_t *r, const vflash_rend
     r->config = *cfg;
     r->current = &r->surf_a;
     r->frame_count = 0;
-    r->alloc_x = cfg->atlas_x;
-    r->alloc_y = cfg->atlas_y;
-    r->alloc_row_h = 0;
+    if (cfg->atlas_width > 0 && cfg->atlas_height > 0) {
+        r->atlas_free_count = 1;
+        r->atlas_free[0].x = (uint16_t)cfg->atlas_x;
+        r->atlas_free[0].y = (uint16_t)cfg->atlas_y;
+        r->atlas_free[0].w = (uint16_t)cfg->atlas_width;
+        r->atlas_free[0].h = (uint16_t)cfg->atlas_height;
+    } else {
+        r->atlas_free_count = 0;
+    }
     r->clip_x = 0;
     r->clip_y = 0;
     r->clip_w = (int32_t)cfg->playfield_width;
@@ -64,15 +70,26 @@ vflash_gpu_result_t vflash_renderer_shutdown(vflash_renderer_t *r)
     return res;
 }
 
+static void init_atlas_free(vflash_renderer_t *r)
+{
+    if (r->config.atlas_width > 0 && r->config.atlas_height > 0) {
+        r->atlas_free_count = 1;
+        r->atlas_free[0].x = (uint16_t)r->config.atlas_x;
+        r->atlas_free[0].y = (uint16_t)r->config.atlas_y;
+        r->atlas_free[0].w = (uint16_t)r->config.atlas_width;
+        r->atlas_free[0].h = (uint16_t)r->config.atlas_height;
+    } else {
+        r->atlas_free_count = 0;
+    }
+}
+
 vflash_gpu_result_t vflash_renderer_reset_atlas(vflash_renderer_t *r)
 {
     if (!r || !r->initialized) return VFLASH_GPU_NOT_INITIALIZED;
     vflash_gpu_result_t res = vflash_gpu_wait_idle(&r->gpu);
     if (res) return res;
     if (!vflash_video_restore_linear()) return VFLASH_GPU_DEVICE_ERROR;
-    r->alloc_x = r->config.atlas_x;
-    r->alloc_y = r->config.atlas_y;
-    r->alloc_row_h = 0;
+    init_atlas_free(r);
     r->generation_id++;
     if (!r->generation_id) r->generation_id = 1;
     r->current = &r->surf_a;
@@ -87,29 +104,126 @@ vflash_gpu_result_t vflash_renderer_reset_atlas(vflash_renderer_t *r)
     return VFLASH_GPU_OK;
 }
 
+static void free_atlas_slot(vflash_renderer_t *r, uint32_t x, uint32_t y,
+                            uint32_t w, uint32_t h)
+{
+    if (!w || !h) return;
+    if (r->atlas_free_count >= VFLASH_MAX_ATLAS_FREE_RECTS) return;
+
+    vflash_atlas_rect_t *rects = r->atlas_free;
+    uint32_t n = r->atlas_free_count;
+    rects[n].x = (uint16_t)x;
+    rects[n].y = (uint16_t)y;
+    rects[n].w = (uint16_t)w;
+    rects[n].h = (uint16_t)h;
+    n++;
+
+    int merged = 1;
+    while (merged) {
+        merged = 0;
+        for (uint32_t i = 0; i < n && !merged; ++i) {
+            for (uint32_t j = i + 1; j < n; ++j) {
+                vflash_atlas_rect_t *a = &rects[i];
+                vflash_atlas_rect_t *b = &rects[j];
+                if (a->x == b->x && a->w == b->w &&
+                    (a->y + a->h == b->y || b->y + b->h == a->y)) {
+                    if (b->y < a->y) a->y = b->y;
+                    a->h = (uint16_t)(a->h + b->h);
+                    rects[j] = rects[--n];
+                    merged = 1;
+                    break;
+                }
+                if (a->y == b->y && a->h == b->h &&
+                    (a->x + a->w == b->x || b->x + b->w == a->x)) {
+                    if (b->x < a->x) a->x = b->x;
+                    a->w = (uint16_t)(a->w + b->w);
+                    rects[j] = rects[--n];
+                    merged = 1;
+                    break;
+                }
+            }
+        }
+    }
+    r->atlas_free_count = n;
+}
+
 static vflash_gpu_result_t alloc_atlas_slot(vflash_renderer_t *r,
                                             uint32_t width, uint32_t height,
                                             uint32_t *ax_out, uint32_t *ay_out)
 {
     uint32_t alloc_w = (width + 3u) & ~3u;
-    uint32_t next_x = r->alloc_x;
-    uint32_t next_y = r->alloc_y;
-    uint32_t next_row_h = r->alloc_row_h;
+    uint32_t best_idx = VFLASH_MAX_ATLAS_FREE_RECTS;
+    uint32_t best_short = 0xFFFFFFFFu;
+    uint32_t best_area = 0xFFFFFFFFu;
 
-    if (next_x + alloc_w > r->config.atlas_x + r->config.atlas_width) {
-        next_x = r->config.atlas_x;
-        next_y += next_row_h;
-        next_row_h = 0;
+    for (uint32_t i = 0; i < r->atlas_free_count; ++i) {
+        uint32_t rw = r->atlas_free[i].w;
+        uint32_t rh = r->atlas_free[i].h;
+        if (rw < alloc_w || rh < height) continue;
+        uint32_t rem_w = rw - alloc_w;
+        uint32_t rem_h = rh - height;
+        uint32_t short_side = (rem_w < rem_h) ? rem_w : rem_h;
+        uint32_t area = rw * rh;
+        if (short_side < best_short ||
+            (short_side == best_short && area < best_area)) {
+            best_short = short_side;
+            best_area = area;
+            best_idx = i;
+        }
     }
-    if (next_y + height > r->config.atlas_y + r->config.atlas_height) {
+
+    if (best_idx >= r->atlas_free_count) {
         return VFLASH_GPU_OUT_OF_MEMORY;
     }
 
-    *ax_out = next_x;
-    *ay_out = next_y;
-    r->alloc_x = next_x + alloc_w;
-    r->alloc_y = next_y;
-    r->alloc_row_h = (height > next_row_h) ? height : next_row_h;
+    vflash_atlas_rect_t chosen = r->atlas_free[best_idx];
+    r->atlas_free[best_idx] = r->atlas_free[--r->atlas_free_count];
+
+    uint32_t rem_w = chosen.w - alloc_w;
+    uint32_t rem_h = chosen.h - height;
+    vflash_atlas_rect_t right = { 0, 0, 0, 0 };
+    vflash_atlas_rect_t bottom = { 0, 0, 0, 0 };
+    if (rem_w > rem_h) {
+        // Split vertically: right gets full height, bottom gets alloc_w.
+        if (rem_w > 0) {
+            right.x = (uint16_t)(chosen.x + alloc_w);
+            right.y = chosen.y;
+            right.w = (uint16_t)rem_w;
+            right.h = chosen.h;
+        }
+        if (rem_h > 0) {
+            bottom.x = chosen.x;
+            bottom.y = (uint16_t)(chosen.y + height);
+            bottom.w = (uint16_t)alloc_w;
+            bottom.h = (uint16_t)rem_h;
+        }
+    } else {
+        // Split horizontally: right gets alloc height, bottom gets full width.
+        if (rem_w > 0) {
+            right.x = (uint16_t)(chosen.x + alloc_w);
+            right.y = chosen.y;
+            right.w = (uint16_t)rem_w;
+            right.h = (uint16_t)height;
+        }
+        if (rem_h > 0) {
+            bottom.x = chosen.x;
+            bottom.y = (uint16_t)(chosen.y + height);
+            bottom.w = chosen.w;
+            bottom.h = (uint16_t)rem_h;
+        }
+    }
+
+    if (right.w > 0 && right.h > 0 &&
+        r->atlas_free_count < VFLASH_MAX_ATLAS_FREE_RECTS) {
+        r->atlas_free[r->atlas_free_count++] = right;
+    }
+    if (bottom.w > 0 && bottom.h > 0 &&
+        r->atlas_free_count < VFLASH_MAX_ATLAS_FREE_RECTS) {
+        r->atlas_free[r->atlas_free_count++] = bottom;
+    }
+
+    *ax_out = chosen.x;
+    *ay_out = chosen.y;
     return VFLASH_GPU_OK;
 }
 
@@ -227,6 +341,14 @@ vflash_gpu_result_t vflash_renderer_destroy_texture(vflash_renderer_t *r, vflash
 {
     if (!r || !r->initialized) return VFLASH_GPU_NOT_INITIALIZED;
     if (!tex || !tex->id || tex->id != r->generation_id) return VFLASH_GPU_INVALID;
+    uint32_t alloc_w = (tex->width + 3u) & ~3u;
+    if (tex->width > 0 && tex->height > 0 &&
+        tex->atlas_x >= r->config.atlas_x &&
+        tex->atlas_y >= r->config.atlas_y &&
+        tex->atlas_x + alloc_w <= r->config.atlas_x + r->config.atlas_width &&
+        tex->atlas_y + tex->height <= r->config.atlas_y + r->config.atlas_height) {
+        free_atlas_slot(r, tex->atlas_x, tex->atlas_y, alloc_w, tex->height);
+    }
     tex->id = 0;
     tex->width = 0;
     tex->height = 0;
@@ -254,9 +376,6 @@ vflash_gpu_result_t vflash_renderer_upload_texture(vflash_renderer_t *r, vflash_
         }
     }
 
-    uint32_t saved_x = r->alloc_x;
-    uint32_t saved_y = r->alloc_y;
-    uint32_t saved_row_h = r->alloc_row_h;
     uint32_t ax = 0, ay = 0;
     vflash_gpu_result_t res = alloc_atlas_slot(r, width, height, &ax, &ay);
     if (res) return res;
@@ -272,9 +391,7 @@ vflash_gpu_result_t vflash_renderer_upload_texture(vflash_renderer_t *r, vflash_
     vflash_gpu_surface_t src_surf;
     res = vflash_gpu_surface_register(&src_surf, &src_fb, (uint32_t)(uintptr_t)pixels, 1);
     if (res) {
-        r->alloc_x = saved_x;
-        r->alloc_y = saved_y;
-        r->alloc_row_h = saved_row_h;
+        free_atlas_slot(r, ax, ay, (width + 3u) & ~3u, height);
         return res;
     }
 
@@ -293,9 +410,7 @@ vflash_gpu_result_t vflash_renderer_upload_texture(vflash_renderer_t *r, vflash_
     vflash_gpu_clip(&r->surf_a, ox + r->clip_x, oy + r->clip_y, r->clip_w, r->clip_h);
     vflash_gpu_clip(&r->surf_b, ox + r->clip_x, oy + r->clip_y, r->clip_w, r->clip_h);
     if (res) {
-        r->alloc_x = saved_x;
-        r->alloc_y = saved_y;
-        r->alloc_row_h = saved_row_h;
+        free_atlas_slot(r, ax, ay, (width + 3u) & ~3u, height);
         return res;
     }
 
@@ -366,9 +481,6 @@ vflash_gpu_result_t vflash_renderer_create_target(vflash_renderer_t *r, vflash_t
     if (type > VFLASH_TEXTURE_TRANSLUCENT) return VFLASH_GPU_INVALID;
     if (width > r->config.atlas_width || height > r->config.atlas_height) return VFLASH_GPU_INVALID;
 
-    uint32_t saved_x = r->alloc_x;
-    uint32_t saved_y = r->alloc_y;
-    uint32_t saved_row_h = r->alloc_row_h;
     uint32_t ax = 0, ay = 0;
     vflash_gpu_result_t res = alloc_atlas_slot(r, width, height, &ax, &ay);
     if (res) return res;
@@ -387,9 +499,7 @@ vflash_gpu_result_t vflash_renderer_create_target(vflash_renderer_t *r, vflash_t
     };
     res = submit_target_op(r, &op);
     if (res) {
-        r->alloc_x = saved_x;
-        r->alloc_y = saved_y;
-        r->alloc_row_h = saved_row_h;
+        free_atlas_slot(r, ax, ay, (width + 3u) & ~3u, height);
         return res;
     }
 

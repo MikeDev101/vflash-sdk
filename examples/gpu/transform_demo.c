@@ -20,6 +20,7 @@ volatile uint32_t boot_marker;
 volatile uint32_t data_cookie = 0x13579BDFu;
 static uint32_t sprite_pixels[32 * 32];
 static uint32_t alpha_pixels[32 * 32];
+static uint32_t big_pixels[128 * 128];
 
 // Asymmetric 32x32 texture:
 // TL=Red, TR=Green, BL=Blue, BR=Yellow, white border on top/left, diagonal
@@ -238,18 +239,35 @@ void vflash_main(void)
                           SDL_TEXTUREACCESS_TARGET, 320, 200) != NULL) {
         transform_errors++;
     }
-    SDL_Texture *overflow_tex = SDL_CreateTexture(
-        ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, 320, 200);
-    VFLASH_ASSERT(overflow_tex != NULL);
-    if (SDL_UpdateTexture(overflow_tex, NULL, sprite_pixels, 0) == 0) {
+    SDL_Texture *ov1 = SDL_CreateTexture(
+        ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, 128, 128);
+    SDL_Texture *ov2 = SDL_CreateTexture(
+        ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, 128, 128);
+    VFLASH_ASSERT(ov1 != NULL && ov2 != NULL);
+    if (SDL_UpdateTexture(ov1, NULL, big_pixels, 128 * 4) != 0) {
+        transform_errors++;
+    }
+    if (SDL_UpdateTexture(ov2, NULL, big_pixels, 128 * 4) == 0) {
         transform_errors++;
     }
     SDL_Rect ov_dst = { 0, 0, 16, 16 };
-    if (SDL_RenderCopyEx(ren, overflow_tex, NULL, &ov_dst, 0.0, NULL,
+    if (SDL_RenderCopyEx(ren, ov2, NULL, &ov_dst, 0.0, NULL,
                          SDL_FLIP_NONE) != 0) {
         transform_errors++;
     }
-    SDL_DestroyTexture(overflow_tex);
+    SDL_DestroyTexture(ov2);
+    SDL_DestroyTexture(ov1);
+
+    // Atlas reclamation: 10 sequential 128x128 uploads (>2x total 320x240 atlas)
+    // must succeed when each texture is destroyed before the next is uploaded.
+    for (int i = 0; i < 10; ++i) {
+        SDL_Texture *churn = SDL_CreateTexture(
+            ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, 128, 128);
+        if (!churn || SDL_UpdateTexture(churn, NULL, big_pixels, 128 * 4) != 0) {
+            transform_errors++;
+        }
+        if (churn) SDL_DestroyTexture(churn);
+    }
 
     for (int f = 0; f < 16; ++f) {
         render_scene(ren, tex, alpha_tex, target_tex, f);

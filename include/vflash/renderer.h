@@ -51,7 +51,19 @@ typedef struct
     uint32_t atlas_height;     // Atlas height within surface_height
 } vflash_renderer_config_t;
 
-#define VFLASH_MAX_TARGET_OPS 256u
+#define VFLASH_MAX_TARGET_OPS 256
+#define VFLASH_MAX_ATLAS_FREE_RECTS 128
+
+//
+// Free rectangle entry in the offscreen texture atlas allocator.
+//
+typedef struct
+{
+    uint16_t x;
+    uint16_t y;
+    uint16_t w;
+    uint16_t h;
+} vflash_atlas_rect_t;
 
 //
 // Deferred GPU command recorded when drawing into an offscreen render target
@@ -86,9 +98,8 @@ typedef struct
     vflash_renderer_config_t config;
     vflash_gpu_surface_t *current;
     uint32_t frame_count;
-    uint32_t alloc_x;
-    uint32_t alloc_y;
-    uint32_t alloc_row_h;
+    uint32_t atlas_free_count;
+    vflash_atlas_rect_t atlas_free[VFLASH_MAX_ATLAS_FREE_RECTS];
     int32_t clip_x;
     int32_t clip_y;
     int32_t clip_w;

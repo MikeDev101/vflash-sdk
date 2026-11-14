@@ -180,9 +180,11 @@ int main(void) {
     r.initialized = 1;
     r.generation_id = 1;
     r.config = cfg;
-    r.alloc_x = cfg.atlas_x;
-    r.alloc_y = cfg.atlas_y;
-    r.alloc_row_h = 0;
+    r.atlas_free_count = 1;
+    r.atlas_free[0].x = (uint16_t)cfg.atlas_x;
+    r.atlas_free[0].y = (uint16_t)cfg.atlas_y;
+    r.atlas_free[0].w = (uint16_t)cfg.atlas_width;
+    r.atlas_free[0].h = (uint16_t)cfg.atlas_height;
 
     assert(vflash_renderer_upload_texture(&r, NULL, dummy_pix, 8, 8, VFLASH_TEXTURE_OPAQUE) == VFLASH_GPU_INVALID);
     assert(vflash_renderer_upload_texture(&r, &tex, NULL, 8, 8, VFLASH_TEXTURE_OPAQUE) == VFLASH_GPU_INVALID);
@@ -191,11 +193,21 @@ int main(void) {
     assert(vflash_renderer_upload_texture(&r, &tex, dummy_pix, 8, 8, (vflash_texture_type_t)99) == VFLASH_GPU_INVALID);
     assert(vflash_renderer_upload_texture(&r, &tex, dummy_pix, 64, 8, VFLASH_TEXTURE_OPAQUE) == VFLASH_GPU_INVALID);
 
-    r.alloc_y = cfg.atlas_y + cfg.atlas_height - 4;
-    uint32_t saved_x = r.alloc_x, saved_y = r.alloc_y, saved_row_h = r.alloc_row_h;
+    r.atlas_free[0].h = 4;
     assert(vflash_renderer_upload_texture(&r, &tex, dummy_pix, 8, 8, VFLASH_TEXTURE_OPAQUE) == VFLASH_GPU_OUT_OF_MEMORY);
-    assert(r.alloc_x == saved_x && r.alloc_y == saved_y && r.alloc_row_h == saved_row_h);
-    r.alloc_y = cfg.atlas_y;
+    assert(r.atlas_free_count == 1 && r.atlas_free[0].h == 4);
+    r.atlas_free[0].h = (uint16_t)cfg.atlas_height;
+
+    // Test atlas reclamation + coalescing via vflash_renderer_destroy_texture
+    r.atlas_free_count = 0;
+    vflash_texture_t t1 = { (uint16_t)cfg.atlas_x, (uint16_t)cfg.atlas_y, 8, 16, VFLASH_TEXTURE_OPAQUE, r.generation_id };
+    vflash_texture_t t2 = { (uint16_t)cfg.atlas_x, (uint16_t)(cfg.atlas_y + 16), 8, 16, VFLASH_TEXTURE_OPAQUE, r.generation_id };
+    vflash_texture_t t3;
+    assert(vflash_renderer_create_target(&r, &t3, 8, 16, VFLASH_TEXTURE_OPAQUE) == VFLASH_GPU_OUT_OF_MEMORY);
+    assert(vflash_renderer_destroy_texture(&r, &t1) == VFLASH_GPU_OK);
+    assert(vflash_renderer_destroy_texture(&r, &t2) == VFLASH_GPU_OK);
+    assert(r.atlas_free_count == 1 && r.atlas_free[0].x == cfg.atlas_x &&
+           r.atlas_free[0].y == cfg.atlas_y && r.atlas_free[0].w == 8 && r.atlas_free[0].h == 32);
 
     tex.width = 16; tex.height = 16; tex.atlas_x = 96; tex.atlas_y = 0; tex.type = VFLASH_TEXTURE_OPAQUE; tex.id = 1;
     assert(vflash_renderer_destroy_texture(NULL, &tex) == VFLASH_GPU_NOT_INITIALIZED);
@@ -285,9 +297,11 @@ int main(void) {
     storage.initialized = 1;
     storage.native_renderer.initialized = 1;
     storage.native_renderer.config = cfg;
-    storage.native_renderer.alloc_x = cfg.atlas_x;
-    storage.native_renderer.alloc_y = cfg.atlas_y;
-    storage.native_renderer.alloc_row_h = 0;
+    storage.native_renderer.atlas_free_count = 1;
+    storage.native_renderer.atlas_free[0].x = (uint16_t)cfg.atlas_x;
+    storage.native_renderer.atlas_free[0].y = (uint16_t)cfg.atlas_y;
+    storage.native_renderer.atlas_free[0].w = (uint16_t)cfg.atlas_width;
+    storage.native_renderer.atlas_free[0].h = (uint16_t)cfg.atlas_height;
     storage.native_renderer.generation_id = 1;
 
     assert(SDL_CreateTexture(NULL, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, 16, 16) == NULL);
